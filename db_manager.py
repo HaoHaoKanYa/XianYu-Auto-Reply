@@ -306,6 +306,22 @@ class DBManager:
             )
             ''')
 
+            # 创建发货历史记录表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS delivery_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id INTEGER NOT NULL,
+                cookie_id TEXT NOT NULL,
+                order_id TEXT,
+                item_id TEXT,
+                user_id TEXT,
+                delivery_content TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (rule_id) REFERENCES delivery_rules(id) ON DELETE CASCADE,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+            )
+            ''')
+
             # 创建默认回复表
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS default_replies (
@@ -3528,20 +3544,69 @@ class DBManager:
                 self.conn.rollback()
                 raise
 
-    def increment_delivery_times(self, rule_id: int):
-        """增加发货次数"""
+    def increment_delivery_times(self, rule_id: int, cookie_id: str = None, order_id: str = None, 
+                                 item_id: str = None, user_id: str = None, delivery_content: str = None):
+        """增加发货次数并记录发货历史"""
         with self.lock:
             try:
                 cursor = self.conn.cursor()
+                # 更新发货次数
                 cursor.execute('''
                 UPDATE delivery_rules
                 SET delivery_times = delivery_times + 1, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 ''', (rule_id,))
+                
+                # 记录发货历史
+                if cookie_id:
+                    cursor.execute('''
+                    INSERT INTO delivery_history (rule_id, cookie_id, order_id, item_id, user_id, delivery_content)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (rule_id, cookie_id, order_id, item_id, user_id, delivery_content))
+                
                 self.conn.commit()
-                logger.debug(f"发货规则 {rule_id} 发货次数已增加")
+                logger.debug(f"发货规则 {rule_id} 发货次数已增加，历史记录已保存")
             except Exception as e:
                 logger.error(f"更新发货次数失败: {e}")
+    
+    def get_today_delivery_count(self, user_id: int = None):
+        """获取今日发货数量"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                
+                # 获取今天的开始时间（00:00:00）
+                from datetime import datetime, date
+                today_start = datetime.combine(date.today(), datetime.min.time()).strftime('%Y-%m-%d %H:%M:%S')
+                
+                if user_id:
+                    # 获取该用户的所有cookie_id
+                    cursor.execute('SELECT id FROM cookies WHERE user_id = ?', (user_id,))
+                    cookie_ids = [row[0] for row in cursor.fetchall()]
+                    
+                    if not cookie_ids:
+                        return 0
+                    
+                    # 统计今日发货数量
+                    placeholders = ','.join('?' * len(cookie_ids))
+                    cursor.execute(f'''
+                    SELECT COUNT(*) FROM delivery_history
+                    WHERE cookie_id IN ({placeholders})
+                    AND created_at >= ?
+                    ''', (*cookie_ids, today_start))
+                else:
+                    # 统计所有今日发货数量
+                    cursor.execute('''
+                    SELECT COUNT(*) FROM delivery_history
+                    WHERE created_at >= ?
+                    ''', (today_start,))
+                
+                result = cursor.fetchone()
+                return result[0] if result else 0
+                
+            except Exception as e:
+                logger.error(f"获取今日发货数量失败: {e}")
+                return 0
 
     def get_delivery_rules_by_keyword_and_spec(self, keyword: str, spec_name: str = None, spec_value: str = None):
         """根据关键字和规格信息获取匹配的发货规则（支持多规格）"""

@@ -3728,8 +3728,15 @@ class XianyuLive:
                     # 处理备注信息和变量替换
                     final_content = self._process_delivery_content_with_description(delivery_content, rule.get('card_description', ''))
 
-                    # 增加发货次数统计
-                    db_manager.increment_delivery_times(rule['id'])
+                    # 增加发货次数统计并记录发货历史
+                    db_manager.increment_delivery_times(
+                        rule_id=rule['id'],
+                        cookie_id=self.cookie_id,
+                        order_id=order_id,
+                        item_id=item_id,
+                        user_id=send_user_id,
+                        delivery_content=final_content[:500] if final_content else None  # 只保存前500字符
+                    )
                     logger.info(f"自动发货成功: 规则ID={rule['id']}, 内容长度={len(final_content)}")
                     return final_content
                 else:

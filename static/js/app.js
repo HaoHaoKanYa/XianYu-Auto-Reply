@@ -1897,22 +1897,22 @@ async function logout(clearRememberMe = false) {
         }
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user_info');
-        
+
         // 如果指定清除记住我，则删除记住的登录信息
         if (clearRememberMe) {
             localStorage.removeItem('remember_login');
         }
-        
+
         window.location.href = '/';
     } catch (err) {
         console.error('登出失败:', err);
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user_info');
-        
+
         if (clearRememberMe) {
             localStorage.removeItem('remember_login');
         }
-        
+
         window.location.href = '/';
     }
 }
@@ -4216,7 +4216,7 @@ async function loadDeliveryRules() {
         if (response.ok) {
             const rules = await response.json();
             renderDeliveryRulesList(rules);
-            updateDeliveryStats(rules);
+            await updateDeliveryStats(rules);
 
             // 同时加载卡券列表用于下拉选择
             loadCardsForSelect();
@@ -4315,11 +4315,26 @@ function renderDeliveryRulesList(rules) {
 }
 
 // 更新发货统计
-function updateDeliveryStats(rules) {
+async function updateDeliveryStats(rules) {
     const totalRules = rules.length;
     const activeRules = rules.filter(rule => rule.enabled).length;
-    const todayDeliveries = 0; // 需要从后端获取今日发货统计
     const totalDeliveries = rules.reduce((sum, rule) => sum + (rule.delivery_times || 0), 0);
+
+    // 从后端获取今日发货统计
+    let todayDeliveries = 0;
+    try {
+        const response = await fetch(`${apiBase}/delivery-stats`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            todayDeliveries = data.today_deliveries || 0;
+        }
+    } catch (error) {
+        console.error('获取今日发货统计失败:', error);
+    }
 
     document.getElementById('totalRules').textContent = totalRules;
     document.getElementById('activeRules').textContent = activeRules;
@@ -10980,7 +10995,7 @@ async function openReminderRecords() {
             const now = new Date();
             records.forEach(record => {
                 const row = document.createElement('tr');
-                
+
                 // 检查下次提醒时间是否已到
                 let nextTimeDisplay = record.next_reminder_time || '-';
                 if (record.next_reminder_time) {
@@ -10990,7 +11005,7 @@ async function openReminderRecords() {
                     const timeIcon = isPast ? '⏰ ' : '';
                     nextTimeDisplay = `<span class="${timeClass}">${timeIcon}${record.next_reminder_time}</span>`;
                 }
-                
+
                 row.innerHTML = `
                     <td>${record.order_id}</td>
                     <td>${record.buyer_id}</td>
@@ -12911,7 +12926,7 @@ async function loadAutoReviewRecords(cookieId) {
         } else {
             records.forEach(record => {
                 const row = document.createElement('tr');
-                
+
                 let statusBadge = '';
                 switch (record.status) {
                     case 'pending':
@@ -12977,7 +12992,7 @@ async function loadAutoReviewStatistics(cookieId) {
 }
 
 // 页面加载时初始化自动好评页面
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // 加载账号列表到自动好评下拉框
     const autoReviewSelect = document.getElementById('auto-review-cookie-select');
     if (autoReviewSelect) {
