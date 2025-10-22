@@ -12036,6 +12036,9 @@ async function loadReviewRequestPage() {
         const select = document.getElementById('review-request-cookie-select');
 
         if (select) {
+            // 保存当前选择的账号ID
+            const currentSelectedCookieId = select.value;
+
             // 清空现有选项（保留第一个"请选择账号"选项）
             select.innerHTML = '<option value="">请选择账号</option>';
 
@@ -12046,6 +12049,13 @@ async function loadReviewRequestPage() {
                 option.textContent = cookie.id;
                 select.appendChild(option);
             });
+
+            // 恢复之前选择的账号
+            if (currentSelectedCookieId) {
+                select.value = currentSelectedCookieId;
+                // 重新加载该账号的设置
+                await loadReviewRequestSettings(currentSelectedCookieId);
+            }
         }
     } catch (error) {
         console.error('加载求好评页面失败:', error);
