@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +14,7 @@
       --success-color: #198754;
       --danger-color: #dc3545;
     }
-    
+
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -22,37 +23,37 @@
       align-items: center;
       justify-content: center;
     }
-    
+
     .login-container {
       background: white;
       border-radius: 20px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
       overflow: hidden;
       width: 100%;
       max-width: 400px;
     }
-    
+
     .login-header {
       background: var(--primary-color);
       color: white;
       padding: 30px;
       text-align: center;
     }
-    
+
     .login-header h2 {
       margin: 0;
       font-weight: 600;
     }
-    
+
     .login-header p {
       margin: 10px 0 0 0;
       opacity: 0.9;
     }
-    
+
     .login-body {
       padding: 40px 30px;
     }
-    
+
     .form-control {
       border-radius: 10px;
       border: 2px solid #e9ecef;
@@ -60,12 +61,12 @@
       font-size: 16px;
       transition: all 0.3s ease;
     }
-    
+
     .form-control:focus {
       border-color: var(--primary-color);
       box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
     }
-    
+
     .btn-login {
       background: var(--primary-color);
       border: none;
@@ -76,17 +77,17 @@
       width: 100%;
       transition: all 0.3s ease;
     }
-    
+
     .btn-login:hover {
       background: #0b5ed7;
       transform: translateY(-2px);
     }
-    
+
     .input-group {
       position: relative;
       margin-bottom: 20px;
     }
-    
+
     .input-group i {
       position: absolute;
       left: 15px;
@@ -95,25 +96,26 @@
       color: var(--secondary-color);
       z-index: 10;
     }
-    
+
     .input-group .form-control {
       padding-left: 45px;
     }
-    
+
     .alert {
       border-radius: 10px;
       border: none;
     }
-    
+
     .loading {
       display: none;
     }
-    
+
     .loading.show {
       display: inline-block;
     }
   </style>
 </head>
+
 <body>
   <div class="login-container">
     <div class="login-header">
@@ -121,7 +123,7 @@
       <h2>闲鱼自动回复</h2>
       <p>管理系统登录</p>
     </div>
-    
+
     <div class="login-body">
       <!-- 登录方式选择 -->
       <div class="login-tabs mb-4">
@@ -142,12 +144,20 @@
         <div id="usernameLoginForm" class="login-form-section">
           <div class="input-group">
             <i class="bi bi-person-fill"></i>
-            <input type="text" class="form-control" id="username" placeholder="请输入用户名">
+            <input type="text" class="form-control" id="username" placeholder="请输入用户名" autocomplete="username">
           </div>
 
           <div class="input-group">
             <i class="bi bi-lock-fill"></i>
-            <input type="password" class="form-control" id="password" placeholder="请输入密码">
+            <input type="password" class="form-control" id="password" placeholder="请输入密码"
+              autocomplete="current-password">
+          </div>
+
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="rememberMe" checked>
+            <label class="form-check-label" for="rememberMe">
+              记住我（7天内自动登录）
+            </label>
           </div>
         </div>
 
@@ -155,12 +165,20 @@
         <div id="emailPasswordLoginForm" class="login-form-section" style="display: none;">
           <div class="input-group">
             <i class="bi bi-envelope-fill"></i>
-            <input type="email" class="form-control" id="emailForPassword" placeholder="请输入邮箱地址">
+            <input type="email" class="form-control" id="emailForPassword" placeholder="请输入邮箱地址" autocomplete="email">
           </div>
 
           <div class="input-group">
             <i class="bi bi-lock-fill"></i>
-            <input type="password" class="form-control" id="emailPassword" placeholder="请输入密码">
+            <input type="password" class="form-control" id="emailPassword" placeholder="请输入密码"
+              autocomplete="current-password">
+          </div>
+
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="rememberMeEmail" checked>
+            <label class="form-check-label" for="rememberMeEmail">
+              记住我（7天内自动登录）
+            </label>
           </div>
         </div>
 
@@ -181,9 +199,10 @@
               <div class="col-5">
                 <div class="captcha-container" style="position: relative;">
                   <img id="captchaImage" src="" alt="图形验证码"
-                       style="width: 100%; height: 38px; border: 1px solid #ddd; border-radius: 5px; cursor: pointer;"
-                       onclick="refreshCaptcha()">
-                  <div id="captchaLoading" class="text-center" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+                    style="width: 100%; height: 38px; border: 1px solid #ddd; border-radius: 5px; cursor: pointer;"
+                    onclick="refreshCaptcha()">
+                  <div id="captchaLoading" class="text-center"
+                    style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
                     <div class="spinner-border spinner-border-sm" role="status"></div>
                   </div>
                 </div>
@@ -197,7 +216,8 @@
           <!-- 邮箱验证码 -->
           <div class="input-group">
             <input type="text" class="form-control" id="verificationCode" placeholder="输入6位验证码" maxlength="6">
-            <button type="button" class="btn btn-outline-secondary" id="sendCodeBtn" onclick="sendVerificationCode()" disabled>
+            <button type="button" class="btn btn-outline-secondary" id="sendCodeBtn" onclick="sendVerificationCode()"
+              disabled>
               发送验证码
             </button>
           </div>
@@ -211,10 +231,24 @@
           <span id="errorMessage"></span>
         </div>
 
+        <!-- 自动登录提示 -->
+        <div id="autoLoginAlert" class="alert alert-info d-none" role="alert">
+          <i class="bi bi-info-circle-fill me-2"></i>
+          <span id="autoLoginMessage">检测到记住的登录信息，正在自动登录...</span>
+        </div>
+
         <button type="submit" class="btn btn-primary btn-login">
           <span class="loading spinner-border spinner-border-sm me-2" role="status"></span>
           <span id="loginText">登录</span>
         </button>
+
+        <!-- 清除记住的登录信息 -->
+        <div class="text-center mt-3" id="clearRememberSection" style="display: none;">
+          <a href="javascript:void(0)" onclick="clearRememberLogin()" class="text-muted text-decoration-none">
+            <i class="bi bi-x-circle me-1"></i>
+            <small>清除记住的登录信息</small>
+          </a>
+        </div>
       </form>
 
       <!-- 注册链接 -->
@@ -261,16 +295,16 @@
     const errorMessage = document.getElementById('errorMessage');
     const loading = document.querySelector('.loading');
     const loginText = document.getElementById('loginText');
-    
+
     function showError(message) {
       errorMessage.textContent = message;
       errorAlert.classList.remove('d-none');
     }
-    
+
     function hideError() {
       errorAlert.classList.add('d-none');
     }
-    
+
     function setLoading(isLoading) {
       if (isLoading) {
         loading.classList.add('show');
@@ -301,7 +335,7 @@
         passwordInput.style.backgroundColor = '';
       }, 1000);
     }
-    
+
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       hideError();
@@ -385,6 +419,39 @@
           };
           localStorage.setItem('user_info', JSON.stringify(userInfo));
 
+          // 处理"记住我"功能
+          if (loginType === 'username') {
+            const rememberMe = document.getElementById('rememberMe').checked;
+            if (rememberMe) {
+              // 保存登录信息（7天有效期）
+              const rememberData = {
+                username: loginData.username,
+                password: loginData.password,
+                loginType: 'username',
+                timestamp: Date.now()
+              };
+              localStorage.setItem('remember_login', JSON.stringify(rememberData));
+            } else {
+              // 清除记住的登录信息
+              localStorage.removeItem('remember_login');
+            }
+          } else if (loginType === 'email-password') {
+            const rememberMe = document.getElementById('rememberMeEmail').checked;
+            if (rememberMe) {
+              // 保存登录信息（7天有效期）
+              const rememberData = {
+                email: loginData.email,
+                password: loginData.password,
+                loginType: 'email-password',
+                timestamp: Date.now()
+              };
+              localStorage.setItem('remember_login', JSON.stringify(rememberData));
+            } else {
+              // 清除记住的登录信息
+              localStorage.removeItem('remember_login');
+            }
+          }
+
           // 检查是否有重定向URL
           const redirectUrl = localStorage.getItem('redirectAfterLogin');
           if (redirectUrl) {
@@ -405,27 +472,150 @@
         setLoading(false);
       }
     });
-    
-    // 检查是否已经登录
-    const token = localStorage.getItem('auth_token');
-    if (token) {
-      // 验证token是否有效
-      fetch('/verify', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-      .then(response => response.json())
-      .then(result => {
-        if (result.authenticated) {
-          window.location.href = '/admin';
-        }
-      })
-      .catch(() => {
-        // token无效，清除
-        localStorage.removeItem('auth_token');
-      });
+
+    // 清除记住的登录信息
+    function clearRememberLogin() {
+      if (confirm('确定要清除记住的登录信息吗？下次登录需要重新输入账号密码。')) {
+        localStorage.removeItem('remember_login');
+        document.getElementById('clearRememberSection').style.display = 'none';
+        showError('已清除记住的登录信息');
+        setTimeout(() => {
+          hideError();
+        }, 2000);
+      }
     }
+
+    // 自动登录功能
+    async function tryAutoLogin() {
+      // 首先检查是否已经有有效的token
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        try {
+          const response = await fetch('/verify', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          const result = await response.json();
+          if (result.authenticated) {
+            // token有效，直接跳转
+            window.location.href = '/admin';
+            return;
+          }
+        } catch (error) {
+          // token无效，清除
+          localStorage.removeItem('auth_token');
+        }
+      }
+
+      // 检查是否有记住的登录信息
+      const rememberData = localStorage.getItem('remember_login');
+      if (rememberData) {
+        // 显示清除记住登录信息的链接
+        document.getElementById('clearRememberSection').style.display = 'block';
+
+        try {
+          const data = JSON.parse(rememberData);
+          const now = Date.now();
+          const sevenDays = 7 * 24 * 60 * 60 * 1000; // 7天的毫秒数
+
+          // 检查是否在7天有效期内
+          if (now - data.timestamp < sevenDays) {
+            console.log('发现记住的登录信息，尝试自动登录...');
+
+            // 显示自动登录提示
+            const autoLoginAlert = document.getElementById('autoLoginAlert');
+            autoLoginAlert.classList.remove('d-none');
+            const loginText = document.getElementById('loginText');
+            loginText.textContent = '自动登录中...';
+            setLoading(true);
+
+            // 根据登录类型构造登录数据
+            let loginData = {};
+            if (data.loginType === 'username') {
+              loginData = {
+                username: data.username,
+                password: data.password
+              };
+              // 填充表单（让用户看到）
+              document.getElementById('username').value = data.username;
+              document.getElementById('password').value = '••••••••';
+            } else if (data.loginType === 'email-password') {
+              loginData = {
+                email: data.email,
+                password: data.password
+              };
+              // 切换到邮箱登录
+              document.getElementById('emailPasswordLogin').checked = true;
+              switchLoginType();
+              document.getElementById('emailForPassword').value = data.email;
+              document.getElementById('emailPassword').value = '••••••••';
+            }
+
+            // 延迟1秒后自动登录，让用户看到提示
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // 尝试自动登录
+            const response = await fetch('/login', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(loginData)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+              // 保存token
+              localStorage.setItem('auth_token', result.token);
+
+              // 保存用户信息
+              const userInfo = {
+                user_id: result.user_id,
+                username: result.username,
+                is_admin: result.is_admin
+              };
+              localStorage.setItem('user_info', JSON.stringify(userInfo));
+
+              // 更新记住的登录信息时间戳
+              data.timestamp = Date.now();
+              localStorage.setItem('remember_login', JSON.stringify(data));
+
+              // 显示成功提示
+              document.getElementById('autoLoginMessage').textContent = '自动登录成功，正在跳转...';
+
+              // 跳转到管理页面
+              setTimeout(() => {
+                window.location.href = '/admin';
+              }, 500);
+            } else {
+              // 自动登录失败，清除记住的信息
+              localStorage.removeItem('remember_login');
+              autoLoginAlert.classList.add('d-none');
+              setLoading(false);
+              loginText.textContent = '登录';
+              document.getElementById('clearRememberSection').style.display = 'none';
+              showError('自动登录失败: ' + result.message);
+              console.log('自动登录失败:', result.message);
+            }
+          } else {
+            // 超过7天，清除记住的信息
+            localStorage.removeItem('remember_login');
+            document.getElementById('clearRememberSection').style.display = 'none';
+            console.log('记住的登录信息已过期');
+          }
+        } catch (error) {
+          console.error('自动登录出错:', error);
+          localStorage.removeItem('remember_login');
+          document.getElementById('clearRememberSection').style.display = 'none';
+          setLoading(false);
+        }
+      }
+    }
+
+    // 页面加载时尝试自动登录
+    tryAutoLogin();
 
     // 登录方式切换相关变量
     let captchaVerified = false;
@@ -679,7 +869,7 @@
     }
 
     // 事件监听器
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
       // 检查注册状态
       checkRegistrationStatus();
 
@@ -694,7 +884,7 @@
       // 图形验证码输入框事件
       const captchaCodeInput = document.getElementById('captchaCode');
       if (captchaCodeInput) {
-        captchaCodeInput.addEventListener('input', function() {
+        captchaCodeInput.addEventListener('input', function () {
           if (this.value.length === 4) {
             verifyCaptcha();
           } else {
@@ -713,4 +903,5 @@
     });
   </script>
 </body>
+
 </html>

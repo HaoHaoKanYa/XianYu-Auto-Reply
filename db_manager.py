@@ -421,6 +421,72 @@ class DBManager:
             )
             ''')
 
+            # 创建自动提醒收货设置表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reminder_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT FALSE,
+                first_delay_value INTEGER DEFAULT 3,
+                first_delay_unit TEXT DEFAULT 'days',
+                reminder_interval INTEGER DEFAULT 2,
+                max_reminder_count INTEGER DEFAULT 3,
+                exclude_blacklist BOOLEAN DEFAULT TRUE,
+                exclude_dispute BOOLEAN DEFAULT TRUE,
+                exclude_competitor BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id)
+            )
+            ''')
+
+            # 创建提醒记录表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reminder_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL,
+                cookie_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                reminder_count INTEGER DEFAULT 0,
+                last_reminder_time TIMESTAMP,
+                next_reminder_time TIMESTAMP,
+                ship_time TIMESTAMP,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(order_id)
+            )
+            ''')
+
+            # 创建黑名单用户表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS blacklist_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id, buyer_id)
+            )
+            ''')
+
+            # 创建同行用户表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS competitor_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                detected_reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id, buyer_id)
+            )
+            ''')
+
             # 插入默认系统设置（不包括管理员密码，由reply_server.py初始化）
             cursor.execute('''
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
@@ -4945,6 +5011,558 @@ class DBManager:
         except Exception as e:
             logger.error(f"删除风控日志失败: {e}")
             return False
+
+
+    # ==================== 自动提醒收货相关方法 ====================
+    
+    def get_reminder_settings(self, cookie_id: str) -> Optional[Dict]:
+        """获取账号的提醒设置
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            Dict: 提醒设置，如果不存在则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT enabled, first_delay_value, first_delay_unit, reminder_interval,
+                           max_reminder_count, exclude_blacklist, exclude_dispute, exclude_competitor
+                    FROM reminder_settings
+                    WHERE cookie_id = ?
+                ''', (cookie_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'enabled': bool(result[0]),
+                        'first_delay_value': result[1],
+                        'first_delay_unit': result[2],
+                        'reminder_interval': result[3],
+                        'max_reminder_count': result[4],
+                        'exclude_blacklist': bool(result[5]),
+                        'exclude_dispute': bool(result[6]),
+                        'exclude_competitor': bool(result[7])
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"获取提醒设置失败: {e}")
+                return None
+    
+    def save_reminder_settings(self, cookie_id: str, settings: Dict) -> bool:
+        """保存提醒设置
+        
+        Args:
+            cookie_id: 账号ID
+            settings: 提醒设置
+            
+        Returns:
+            bool: 是否保存成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO reminder_settings
+                    (cookie_id, enabled, first_delay_value, first_delay_unit, reminder_interval,
+                     max_reminder_count, exclude_blacklist, exclude_dispute, exclude_competitor, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    cookie_id,
+                    settings.get('enabled', False),
+                    settings.get('first_delay_value', 3),
+                    settings.get('first_delay_unit', 'days'),
+                    settings.get('reminder_interval', 2),
+                    settings.get('max_reminder_count', 3),
+                    settings.get('exclude_blacklist', True),
+                    settings.get('exclude_dispute', True),
+                    settings.get('exclude_competitor', True)
+                ))
+                self.conn.commit()
+                logger.info(f"保存提醒设置成功: {cookie_id}")
+                return True
+            except Exception as e:
+                logger.error(f"保存提醒设置失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_enabled_reminder_cookies(self) -> List[str]:
+        """获取所有启用了提醒功能的账号ID列表
+        
+        Returns:
+            List[str]: 账号ID列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT cookie_id FROM reminder_settings WHERE enabled = 1
+                ''')
+                return [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"获取启用提醒的账号列表失败: {e}")
+                return []
+    
+    def create_reminder_record(self, order_id: str, cookie_id: str, buyer_id: str,
+                              ship_time, next_reminder_time) -> bool:
+        """创建提醒记录
+        
+        Args:
+            order_id: 订单ID
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            ship_time: 发货时间
+            next_reminder_time: 下次提醒时间
+            
+        Returns:
+            bool: 是否创建成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO reminder_records
+                    (order_id, cookie_id, buyer_id, reminder_count, ship_time, next_reminder_time, status)
+                    VALUES (?, ?, ?, 0, ?, ?, 'pending')
+                ''', (order_id, cookie_id, buyer_id, ship_time, next_reminder_time))
+                self.conn.commit()
+                logger.info(f"创建提醒记录成功: 订单 {order_id}")
+                return True
+            except Exception as e:
+                logger.error(f"创建提醒记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_pending_reminders(self, cookie_id: str, current_time) -> List[Dict]:
+        """获取待提醒的订单列表
+        
+        Args:
+            cookie_id: 账号ID
+            current_time: 当前时间
+            
+        Returns:
+            List[Dict]: 待提醒订单列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT order_id, buyer_id, reminder_count, last_reminder_time, next_reminder_time, ship_time
+                    FROM reminder_records
+                    WHERE cookie_id = ? AND status = 'pending' AND next_reminder_time <= ?
+                    ORDER BY next_reminder_time ASC
+                ''', (cookie_id, current_time))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'reminder_count': row[2],
+                        'last_reminder_time': row[3],
+                        'next_reminder_time': row[4],
+                        'ship_time': row[5],
+                        'cookie_id': cookie_id
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取待提醒订单列表失败: {e}")
+                return []
+    
+    def update_reminder_record(self, order_id: str, reminder_count: int,
+                              last_reminder_time, next_reminder_time, status: str) -> bool:
+        """更新提醒记录
+        
+        Args:
+            order_id: 订单ID
+            reminder_count: 提醒次数
+            last_reminder_time: 最后提醒时间
+            next_reminder_time: 下次提醒时间
+            status: 状态
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE reminder_records
+                    SET reminder_count = ?, last_reminder_time = ?, next_reminder_time = ?,
+                        status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                ''', (reminder_count, last_reminder_time, next_reminder_time, status, order_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新提醒记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def update_reminder_status(self, order_id: str, status: str) -> bool:
+        """更新提醒记录状态
+        
+        Args:
+            order_id: 订单ID
+            status: 状态 (pending/completed/cancelled)
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE reminder_records
+                    SET status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                ''', (status, order_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新提醒状态失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def is_blacklist_user(self, cookie_id: str, buyer_id: str) -> bool:
+        """检查用户是否在黑名单中
+        
+        Args:
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            
+        Returns:
+            bool: 是否在黑名单中
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM blacklist_users
+                    WHERE cookie_id = ? AND buyer_id = ?
+                ''', (cookie_id, buyer_id))
+                return cursor.fetchone()[0] > 0
+            except Exception as e:
+                logger.error(f"检查黑名单失败: {e}")
+                return False
+    
+    def add_blacklist_user(self, cookie_id: str, buyer_id: str, reason: str = '') -> bool:
+        """添加用户到黑名单
+        
+        Args:
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            reason: 原因
+            
+        Returns:
+            bool: 是否添加成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR IGNORE INTO blacklist_users (cookie_id, buyer_id, reason)
+                    VALUES (?, ?, ?)
+                ''', (cookie_id, buyer_id, reason))
+                self.conn.commit()
+                logger.info(f"添加黑名单用户成功: {buyer_id}")
+                return True
+            except Exception as e:
+                logger.error(f"添加黑名单用户失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def remove_blacklist_user(self, cookie_id: str, buyer_id: str) -> bool:
+        """从黑名单中移除用户
+        
+        Args:
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            
+        Returns:
+            bool: 是否移除成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    DELETE FROM blacklist_users WHERE cookie_id = ? AND buyer_id = ?
+                ''', (cookie_id, buyer_id))
+                self.conn.commit()
+                logger.info(f"移除黑名单用户成功: {buyer_id}")
+                return True
+            except Exception as e:
+                logger.error(f"移除黑名单用户失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_blacklist_users(self, cookie_id: str) -> List[Dict]:
+        """获取黑名单用户列表
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            List[Dict]: 黑名单用户列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT buyer_id, reason, created_at FROM blacklist_users
+                    WHERE cookie_id = ?
+                    ORDER BY created_at DESC
+                ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'buyer_id': row[0],
+                        'reason': row[1],
+                        'created_at': row[2]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取黑名单用户列表失败: {e}")
+                return []
+    
+    def is_competitor_user(self, cookie_id: str, buyer_id: str) -> bool:
+        """检查用户是否是同行
+        
+        Args:
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            
+        Returns:
+            bool: 是否是同行
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM competitor_users
+                    WHERE cookie_id = ? AND buyer_id = ?
+                ''', (cookie_id, buyer_id))
+                return cursor.fetchone()[0] > 0
+            except Exception as e:
+                logger.error(f"检查同行用户失败: {e}")
+                return False
+    
+    def add_competitor_user(self, cookie_id: str, buyer_id: str, reason: str = '') -> bool:
+        """添加同行用户
+        
+        Args:
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            reason: 检测原因
+            
+        Returns:
+            bool: 是否添加成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR IGNORE INTO competitor_users (cookie_id, buyer_id, detected_reason)
+                    VALUES (?, ?, ?)
+                ''', (cookie_id, buyer_id, reason))
+                self.conn.commit()
+                logger.info(f"添加同行用户成功: {buyer_id}")
+                return True
+            except Exception as e:
+                logger.error(f"添加同行用户失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def remove_competitor_user(self, cookie_id: str, buyer_id: str) -> bool:
+        """移除同行用户
+        
+        Args:
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            
+        Returns:
+            bool: 是否移除成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    DELETE FROM competitor_users WHERE cookie_id = ? AND buyer_id = ?
+                ''', (cookie_id, buyer_id))
+                self.conn.commit()
+                logger.info(f"移除同行用户成功: {buyer_id}")
+                return True
+            except Exception as e:
+                logger.error(f"移除同行用户失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_competitor_users(self, cookie_id: str) -> List[Dict]:
+        """获取同行用户列表
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            List[Dict]: 同行用户列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT buyer_id, detected_reason, created_at FROM competitor_users
+                    WHERE cookie_id = ?
+                    ORDER BY created_at DESC
+                ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'buyer_id': row[0],
+                        'detected_reason': row[1],
+                        'created_at': row[2]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取同行用户列表失败: {e}")
+                return []
+    
+    def has_dispute_record(self, order_id: str) -> bool:
+        """检查订单是否有售后/投诉/纠纷记录
+        
+        注意：这个方法目前返回False，因为项目中暂未实现售后记录功能
+        未来可以扩展此方法来检查实际的售后记录
+        
+        Args:
+            order_id: 订单ID
+            
+        Returns:
+            bool: 是否有售后记录
+        """
+        # TODO: 未来可以添加售后记录表并实现此功能
+        return False
+    
+    def get_reminder_records(self, cookie_id: str, status: str = None) -> List[Dict]:
+        """获取提醒记录列表
+        
+        Args:
+            cookie_id: 账号ID
+            status: 状态过滤 (可选)
+            
+        Returns:
+            List[Dict]: 提醒记录列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                if status:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, reminder_count, last_reminder_time,
+                               next_reminder_time, ship_time, status, created_at
+                        FROM reminder_records
+                        WHERE cookie_id = ? AND status = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id, status))
+                else:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, reminder_count, last_reminder_time,
+                               next_reminder_time, ship_time, status, created_at
+                        FROM reminder_records
+                        WHERE cookie_id = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'reminder_count': row[2],
+                        'last_reminder_time': row[3],
+                        'next_reminder_time': row[4],
+                        'ship_time': row[5],
+                        'status': row[6],
+                        'created_at': row[7]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取提醒记录列表失败: {e}")
+                return []
+    
+    def get_shipped_orders(self, cookie_id: str) -> List[Dict]:
+        """获取已发货的订单列表
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            List[Dict]: 已发货订单列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                # 使用 updated_at 作为发货时间的近似值
+                self._execute_sql(cursor, '''
+                    SELECT order_id, buyer_id, item_id, updated_at, order_status
+                    FROM orders
+                    WHERE cookie_id = ? AND order_status = 'shipped'
+                    ORDER BY updated_at DESC
+                ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'item_id': row[2],
+                        'ship_time': row[3],  # 使用 updated_at 作为 ship_time
+                        'order_status': row[4]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取已发货订单列表失败: {e}")
+                return []
+    
+    def get_reminder_record(self, order_id: str) -> Optional[Dict]:
+        """获取指定订单的提醒记录
+        
+        Args:
+            order_id: 订单ID
+            
+        Returns:
+            Optional[Dict]: 提醒记录，不存在则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT order_id, cookie_id, buyer_id, reminder_count, 
+                           last_reminder_time, next_reminder_time, ship_time, 
+                           status, created_at
+                    FROM reminder_records
+                    WHERE order_id = ?
+                ''', (order_id,))
+                
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'order_id': row[0],
+                        'cookie_id': row[1],
+                        'buyer_id': row[2],
+                        'reminder_count': row[3],
+                        'last_reminder_time': row[4],
+                        'next_reminder_time': row[5],
+                        'ship_time': row[6],
+                        'status': row[7],
+                        'created_at': row[8]
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"获取提醒记录失败: {e}")
+                return None
 
 
 # 全局单例

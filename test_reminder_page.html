@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>测试提醒收货页面</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>提醒收货功能测试页面</h1>
+    
+    <div class="test-section">
+        <h2>1. 检查HTML元素</h2>
+        <button onclick="checkElements()">检查元素</button>
+        <div id="elementResult"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 检查JavaScript函数</h2>
+        <button onclick="checkFunctions()">检查函数</button>
+        <div id="functionResult"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 测试页面显示</h2>
+        <p>在主系统中点击"提醒收货"菜单，检查：</p>
+        <ul>
+            <li>页面是否显示</li>
+            <li>是否有5个卡片（功能说明、提醒设置、提醒记录、黑名单管理、同行管理）</li>
+            <li>按钮是否可以点击</li>
+        </ul>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 检查浏览器控制台</h2>
+        <p>打开浏览器开发者工具（F12），查看Console标签页是否有错误信息</p>
+    </div>
+
+    <script>
+        function checkElements() {
+            const result = document.getElementById('elementResult');
+            const elements = [
+                'reminder-section',
+                'reminderSettingsModal',
+                'reminderRecordsModal',
+                'blacklistModal',
+                'competitorModal'
+            ];
+            
+            let html = '<ul>';
+            elements.forEach(id => {
+                const exists = document.getElementById(id) !== null;
+                const status = exists ? '<span class="success">✓ 存在</span>' : '<span class="error">✗ 不存在</span>';
+                html += `<li>${id}: ${status}</li>`;
+            });
+            html += '</ul>';
+            result.innerHTML = html;
+        }
+        
+        function checkFunctions() {
+            const result = document.getElementById('functionResult');
+            const functions = [
+                'openReminderSettings',
+                'saveReminderSettings',
+                'openReminderRecords',
+                'openBlacklistManager',
+                'openCompetitorManager',
+                'viewReminderStatistics'
+            ];
+            
+            let html = '<ul>';
+            functions.forEach(name => {
+                const exists = typeof window[name] === 'function';
+                const status = exists ? '<span class="success">✓ 存在</span>' : '<span class="error">✗ 不存在</span>';
+                html += `<li>${name}: ${status}</li>`;
+            });
+            html += '</ul>';
+            result.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

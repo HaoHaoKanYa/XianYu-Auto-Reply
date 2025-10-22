@@ -144,6 +144,15 @@ async def main():
     threading.Thread(target=_start_api_server, daemon=True).start()
     print("API 服务线程已启动")
 
+    # 启动自动提醒收货管理器
+    print("启动自动提醒收货管理器...")
+    try:
+        from reminder_manager import reminder_manager
+        await reminder_manager.start()
+        logger.info("自动提醒收货管理器已启动")
+    except Exception as e:
+        logger.error(f"启动自动提醒收货管理器失败: {e}")
+
     # 上报用户统计
     try:
         await report_user_count()

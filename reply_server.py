@@ -4773,6 +4773,384 @@ def get_user_orders(current_user: Dict[str, Any] = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"查询订单失败: {str(e)}")
 
 
+# ========================= 自动提醒收货管理接口 =========================
+
+@app.get('/reminder-settings/{cid}')
+def get_reminder_settings(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取指定账号的提醒设置"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        settings = db_manager.get_reminder_settings(cid)
+        if not settings:
+            # 返回默认设置
+            settings = {
+                'enabled': False,
+                'first_delay_value': 3,
+                'first_delay_unit': 'days',
+                'reminder_interval': 2,
+                'max_reminder_count': 3,
+                'exclude_blacklist': True,
+                'exclude_dispute': True,
+                'exclude_competitor': True
+            }
+        
+        return {"success": True, "settings": settings}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取提醒设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/reminder-settings/{cid}')
+async def save_reminder_settings(cid: str, settings: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """保存提醒设置"""
+    from db_manager import db_manager
+    from reminder_manager import reminder_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 保存设置
+        success = db_manager.save_reminder_settings(cid, settings)
+        
+        if success:
+            # 如果启用了提醒功能，启动提醒任务
+            if settings.get('enabled'):
+                import asyncio
+                asyncio.create_task(reminder_manager.start_reminder_task(cid))
+                logger.info(f"账号 {cid} 的提醒任务已启动")
+            else:
+                # 如果禁用了提醒功能，停止提醒任务
+                import asyncio
+                asyncio.create_task(reminder_manager.stop_reminder_task(cid))
+                logger.info(f"账号 {cid} 的提醒任务已停止")
+        
+        return {"success": success, "message": "保存成功" if success else "保存失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"保存提醒设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/reminder-records/{cid}')
+def get_reminder_records(cid: str, status: Optional[str] = None, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取提醒记录列表"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        records = db_manager.get_reminder_records(cid, status)
+        return {"success": True, "records": records, "total": len(records)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取提醒记录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/blacklist-users/{cid}')
+def get_blacklist_users(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取黑名单用户列表"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        users = db_manager.get_blacklist_users(cid)
+        return {"success": True, "users": users, "total": len(users)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取黑名单用户失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/blacklist-users/{cid}')
+def add_blacklist_user(cid: str, data: Dict[str, str], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """添加黑名单用户"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        buyer_id = data.get('buyer_id')
+        reason = data.get('reason', '')
+        
+        if not buyer_id:
+            raise HTTPException(status_code=400, detail="买家ID不能为空")
+        
+        success = db_manager.add_blacklist_user(cid, buyer_id, reason)
+        return {"success": success, "message": "添加成功" if success else "添加失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"添加黑名单用户失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/blacklist-users/{cid}/{buyer_id}')
+def remove_blacklist_user(cid: str, buyer_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """移除黑名单用户"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        success = db_manager.remove_blacklist_user(cid, buyer_id)
+        return {"success": success, "message": "移除成功" if success else "移除失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"移除黑名单用户失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/competitor-users/{cid}')
+def get_competitor_users(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取同行用户列表"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        users = db_manager.get_competitor_users(cid)
+        return {"success": True, "users": users, "total": len(users)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取同行用户失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/competitor-users/{cid}')
+def add_competitor_user(cid: str, data: Dict[str, str], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """添加同行用户"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        buyer_id = data.get('buyer_id')
+        reason = data.get('detected_reason', '')
+        
+        if not buyer_id:
+            raise HTTPException(status_code=400, detail="买家ID不能为空")
+        
+        success = db_manager.add_competitor_user(cid, buyer_id, reason)
+        return {"success": success, "message": "添加成功" if success else "添加失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"添加同行用户失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/competitor-users/{cid}/{buyer_id}')
+def remove_competitor_user(cid: str, buyer_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """移除同行用户"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        success = db_manager.remove_competitor_user(cid, buyer_id)
+        return {"success": success, "message": "移除成功" if success else "移除失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"移除同行用户失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/reminder-statistics/{cid}')
+def get_reminder_statistics(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取提醒统计信息"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 获取各状态的提醒记录数量
+        all_records = db_manager.get_reminder_records(cid)
+        pending_records = db_manager.get_reminder_records(cid, 'pending')
+        completed_records = db_manager.get_reminder_records(cid, 'completed')
+        cancelled_records = db_manager.get_reminder_records(cid, 'cancelled')
+        
+        # 计算总提醒次数
+        total_reminders = sum(record.get('reminder_count', 0) for record in all_records)
+        
+        statistics = {
+            'total_orders': len(all_records),
+            'pending_orders': len(pending_records),
+            'completed_orders': len(completed_records),
+            'cancelled_orders': len(cancelled_records),
+            'total_reminders': total_reminders
+        }
+        
+        return {"success": True, "statistics": statistics}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取提醒统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/reminder-scan-orders/{cid}')
+def scan_shipped_orders(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """扫描已发货订单并创建提醒记录"""
+    from db_manager import db_manager
+    from reminder_manager import reminder_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 扫描订单
+        result = reminder_manager.scan_shipped_orders(cid)
+        
+        if 'error' in result:
+            return {"success": False, "message": result['error'], "result": result}
+        
+        message = f"扫描完成：共 {result['total']} 个订单，新建 {result['created']} 条提醒记录，跳过 {result['skipped']} 条"
+        return {"success": True, "message": message, "result": result}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"扫描订单失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/reminder-test-send/{cid}')
+async def test_send_reminder(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """测试发送提醒消息（立即发送一条提醒）"""
+    from db_manager import db_manager
+    from reminder_manager import reminder_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 获取第一个待提醒的订单
+        pending_reminders = db_manager.get_reminder_records(cid, 'pending')
+        if not pending_reminders:
+            return {"success": False, "message": "没有待提醒的订单"}
+        
+        reminder = pending_reminders[0]
+        
+        # 尝试发送提醒
+        success = await reminder_manager.send_reminder_message(
+            order_id=reminder['order_id'],
+            buyer_id=reminder['buyer_id'],
+            cookie_id=cid,
+            reminder_count=reminder['reminder_count']
+        )
+        
+        if success:
+            return {
+                "success": True, 
+                "message": f"测试提醒发送成功！订单: {reminder['order_id']}, 买家: {reminder['buyer_id']}"
+            }
+        else:
+            return {
+                "success": False, 
+                "message": "提醒发送失败，请查看日志"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"测试发送提醒失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/reminder-trigger-now/{cid}')
+def trigger_reminders_now(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """立即触发所有待提醒订单（将下次提醒时间设置为当前时间）"""
+    from db_manager import db_manager
+    from datetime import datetime
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 获取所有待提醒的订单
+        pending_reminders = db_manager.get_reminder_records(cid, 'pending')
+        if not pending_reminders:
+            return {"success": False, "message": "没有待提醒的订单"}
+        
+        # 将所有待提醒订单的下次提醒时间设置为当前时间
+        current_time = datetime.now()
+        updated_count = 0
+        
+        for reminder in pending_reminders:
+            try:
+                db_manager.update_reminder_record(
+                    order_id=reminder['order_id'],
+                    reminder_count=reminder['reminder_count'],
+                    last_reminder_time=reminder.get('last_reminder_time'),
+                    next_reminder_time=current_time,
+                    status='pending'
+                )
+                updated_count += 1
+            except Exception as e:
+                logger.error(f"更新提醒记录失败: {reminder['order_id']}, 错误: {e}")
+                continue
+        
+        message = f"成功触发 {updated_count} 个订单的提醒，提醒任务将在1分钟内执行"
+        logger.info(f"【{cid}】{message}")
+        
+        return {"success": True, "message": message, "count": updated_count}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"触发提醒失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # 移除自动启动，由Start.py或手动启动
 # if __name__ == "__main__":
 #     uvicorn.run(app, host="0.0.0.0", port=8080)
