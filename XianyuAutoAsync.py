@@ -958,6 +958,7 @@ class XianyuLive:
                         # 添加风控日志记录
                         log_id = None
                         try:
+                            from db_manager import db_manager
                             success = db_manager.add_risk_control_log(
                                 cookie_id=self.cookie_id,
                                 event_type='slider_captcha',
