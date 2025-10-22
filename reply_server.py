@@ -5151,6 +5151,713 @@ def trigger_reminders_now(cid: str, current_user: Dict[str, Any] = Depends(get_c
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ========================= 自动求小红花管理接口 =========================
+
+@app.get('/flower-request-settings/{cid}')
+def get_flower_request_settings(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取指定账号的求小红花设置"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        settings = db_manager.get_flower_request_settings(cid)
+        if not settings:
+            # 返回默认设置
+            settings = {
+                'enabled': False,
+                'delay_value': 3,
+                'delay_unit': 'days',
+                'exclude_blacklist': True,
+                'exclude_dispute': True,
+                'exclude_competitor': True
+            }
+        
+        return {"success": True, "settings": settings}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取求小红花设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/flower-request-settings/{cid}')
+async def save_flower_request_settings(cid: str, settings: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """保存求小红花设置"""
+    from db_manager import db_manager
+    from flower_request_manager import flower_request_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 保存设置
+        success = db_manager.save_flower_request_settings(cid, settings)
+        
+        if success:
+            # 如果启用了求小红花功能，启动求小红花任务
+            if settings.get('enabled'):
+                import asyncio
+                asyncio.create_task(flower_request_manager.start_flower_task(cid))
+                logger.info(f"账号 {cid} 的求小红花任务已启动")
+            else:
+                # 如果禁用了求小红花功能，停止求小红花任务
+                import asyncio
+                asyncio.create_task(flower_request_manager.stop_flower_task(cid))
+                logger.info(f"账号 {cid} 的求小红花任务已停止")
+        
+        return {"success": success, "message": "保存成功" if success else "保存失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"保存求小红花设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/flower-request-records/{cid}')
+def get_flower_request_records(cid: str, status: Optional[str] = None, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取求小红花记录列表"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        records = db_manager.get_flower_request_records(cid, status)
+        return {"success": True, "records": records, "total": len(records)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取求小红花记录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/flower-request-statistics/{cid}')
+def get_flower_request_statistics(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取求小红花统计信息"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 获取各状态的求小红花记录数量
+        all_records = db_manager.get_flower_request_records(cid)
+        pending_records = db_manager.get_flower_request_records(cid, 'pending')
+        completed_records = db_manager.get_flower_request_records(cid, 'completed')
+        cancelled_records = db_manager.get_flower_request_records(cid, 'cancelled')
+        
+        statistics = {
+            'total_orders': len(all_records),
+            'pending_orders': len(pending_records),
+            'completed_orders': len(completed_records),
+            'cancelled_orders': len(cancelled_records)
+        }
+        
+        return {"success": True, "statistics": statistics}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取求小红花统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/flower-request-scan-orders/{cid}')
+def scan_shipped_orders_for_flower(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """扫描已发货订单并创建求小红花记录"""
+    from db_manager import db_manager
+    from flower_request_manager import flower_request_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 扫描订单
+        result = flower_request_manager.scan_shipped_orders(cid)
+        
+        if 'error' in result:
+            return {"success": False, "message": result['error'], "result": result}
+        
+        message = f"扫描完成：共 {result['total']} 个订单，新建 {result['created']} 条求小红花记录，跳过 {result['skipped']} 条"
+        return {"success": True, "message": message, "result": result}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"扫描订单失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/flower-request-test-send/{cid}')
+async def test_send_flower_request(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """测试发送求小红花消息（立即发送一条求小红花）"""
+    from db_manager import db_manager
+    from flower_request_manager import flower_request_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 获取第一个待求小红花的订单
+        pending_requests = db_manager.get_flower_request_records(cid, 'pending')
+        if not pending_requests:
+            return {"success": False, "message": "没有待求小红花的订单"}
+        
+        request = pending_requests[0]
+        
+        # 尝试发送求小红花
+        success = await flower_request_manager.send_flower_request_message(
+            order_id=request['order_id'],
+            buyer_id=request['buyer_id'],
+            cookie_id=cid
+        )
+        
+        if success:
+            return {
+                "success": True, 
+                "message": f"测试求小红花发送成功！订单: {request['order_id']}, 买家: {request['buyer_id']}"
+            }
+        else:
+            return {
+                "success": False, 
+                "message": "求小红花发送失败，请查看日志"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"测试发送求小红花失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/flower-request-trigger-now/{cid}')
+def trigger_flower_requests_now(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """立即触发所有待求小红花订单（将求小红花时间设置为当前时间）"""
+    from db_manager import db_manager
+    from datetime import datetime
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 获取所有待求小红花的订单
+        pending_requests = db_manager.get_flower_request_records(cid, 'pending')
+        if not pending_requests:
+            return {"success": False, "message": "没有待求小红花的订单"}
+        
+        # 将所有待求小红花订单的求小红花时间设置为当前时间
+        current_time = datetime.now()
+        updated_count = 0
+        
+        for request in pending_requests:
+            try:
+                db_manager.update_flower_request_record(
+                    order_id=request['order_id'],
+                    request_time=current_time,
+                    status='pending'
+                )
+                updated_count += 1
+            except Exception as e:
+                logger.error(f"更新求小红花记录失败: {request['order_id']}, 错误: {e}")
+                continue
+        
+        message = f"成功触发 {updated_count} 个订单的求小红花，求小红花任务将在1分钟内执行"
+        logger.info(f"【{cid}】{message}")
+        
+        return {"success": True, "message": message, "count": updated_count}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"触发求小红花失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================= 自动收小红花管理接口 =========================
+
+@app.get('/flower-collect-settings/{cid}')
+def get_flower_collect_settings(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取指定账号的收小红花设置"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        settings = db_manager.get_flower_collect_settings(cid)
+        if not settings:
+            # 返回默认设置
+            settings = {
+                'enabled': False,
+                'delay_value': 3,
+                'delay_unit': 'days'
+            }
+        
+        return {"success": True, "settings": settings}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取收小红花设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/flower-collect-settings/{cid}')
+async def save_flower_collect_settings(cid: str, settings: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """保存收小红花设置"""
+    from db_manager import db_manager
+    from flower_collect_manager import flower_collect_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 保存设置
+        success = db_manager.save_flower_collect_settings(cid, settings)
+        
+        if success:
+            # 如果启用了收小红花功能，启动收小红花任务
+            if settings.get('enabled'):
+                import asyncio
+                asyncio.create_task(flower_collect_manager.start_collect_task(cid))
+                logger.info(f"账号 {cid} 的收小红花任务已启动")
+            else:
+                # 如果禁用了收小红花功能，停止收小红花任务
+                import asyncio
+                asyncio.create_task(flower_collect_manager.stop_collect_task(cid))
+                logger.info(f"账号 {cid} 的收小红花任务已停止")
+        
+        return {"success": success, "message": "保存成功" if success else "保存失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"保存收小红花设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/flower-collect-records/{cid}')
+def get_flower_collect_records(cid: str, status: Optional[str] = None, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取收小红花记录列表"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        records = db_manager.get_flower_collect_records(cid, status)
+        return {"success": True, "records": records, "total": len(records)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取收小红花记录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/flower-collect-statistics/{cid}')
+def get_flower_collect_statistics(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取收小红花统计信息"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        statistics = db_manager.get_flower_collect_statistics(cid)
+        
+        return {"success": True, "statistics": statistics}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取收小红花统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================= 自动求好评管理接口 =========================
+
+@app.get('/review-request-settings/{cid}')
+def get_review_request_settings(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取指定账号的求好评设置"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        settings = db_manager.get_review_request_settings(cid)
+        if not settings:
+            # 返回默认设置
+            settings = {
+                'enabled': False,
+                'delay_value': 3,
+                'delay_unit': 'minutes'
+            }
+        
+        return {"success": True, "settings": settings}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取求好评设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/review-request-settings/{cid}')
+async def save_review_request_settings(cid: str, settings: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """保存求好评设置"""
+    from db_manager import db_manager
+    from review_request_manager import review_request_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        # 保存设置
+        success = db_manager.save_review_request_settings(cid, settings)
+        
+        if success:
+            # 如果启用了求好评功能，启动求好评任务
+            if settings.get('enabled'):
+                import asyncio
+                asyncio.create_task(review_request_manager.start_review_task(cid))
+                logger.info(f"账号 {cid} 的求好评任务已启动")
+            else:
+                # 如果禁用了求好评功能，停止求好评任务
+                import asyncio
+                asyncio.create_task(review_request_manager.stop_review_task(cid))
+                logger.info(f"账号 {cid} 的求好评任务已停止")
+        
+        return {"success": success, "message": "保存成功" if success else "保存失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"保存求好评设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/review-request-records/{cid}')
+def get_review_request_records(cid: str, status: Optional[str] = None, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取求好评记录列表"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        records = db_manager.get_review_request_records(cid, status)
+        return {"success": True, "records": records, "total": len(records)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取求好评记录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/review-request-statistics/{cid}')
+def get_review_request_statistics(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取求好评统计信息"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        statistics = db_manager.get_review_request_statistics(cid)
+        
+        return {"success": True, "statistics": statistics}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取求好评统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================= 求好评模板管理接口 =========================
+
+@app.get('/review-templates/{cid}')
+def get_review_templates(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取求好评模板列表"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        templates = db_manager.get_all_review_templates(cid)
+        return {"success": True, "templates": templates}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取求好评模板列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/review-templates/{cid}')
+def add_review_template(cid: str, template: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """添加求好评模板"""
+    from db_manager import db_manager
+    
+    try:
+        # 验证账号归属
+        cookie_info = db_manager.get_cookie_details(cid)
+        if not cookie_info or cookie_info.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="无权访问此账号")
+        
+        content = template.get('content', '').strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="模板内容不能为空")
+        
+        success = db_manager.add_review_template(cid, content)
+        return {"success": success, "message": "添加成功" if success else "添加失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"添加求好评模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put('/review-templates/{template_id}')
+def update_review_template(template_id: int, template: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """更新求好评模板"""
+    from db_manager import db_manager
+    
+    try:
+        content = template.get('content', '').strip()
+        enabled = template.get('enabled', True)
+        
+        if not content:
+            raise HTTPException(status_code=400, detail="模板内容不能为空")
+        
+        success = db_manager.update_review_template(template_id, content, enabled)
+        return {"success": success, "message": "更新成功" if success else "更新失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新求好评模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/review-templates/{template_id}')
+def delete_review_template(template_id: int, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """删除求好评模板"""
+    from db_manager import db_manager
+    
+    try:
+        success = db_manager.delete_review_template(template_id)
+        return {"success": success, "message": "删除成功" if success else "删除失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除求好评模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================= 自动好评管理接口 =========================
+
+@app.get('/auto-review-settings/{cid}')
+def get_auto_review_settings(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取指定账号的自动好评设置"""
+    from db_manager import db_manager
+    
+    try:
+        settings = db_manager.get_auto_review_settings(cid)
+        if not settings:
+            # 返回默认设置
+            settings = {
+                'enabled': False,
+                'delay_value': 0,
+                'delay_unit': 'seconds',
+                'exclude_bad_review': False,
+                'exclude_medium_review': False,
+                'exclude_blacklist': False,
+                'exclude_dispute': False,
+                'exclude_competitor': False,
+                'sensitive_words': ''
+            }
+        return {"success": True, "settings": settings}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取自动好评设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/auto-review-settings/{cid}')
+async def save_auto_review_settings(cid: str, settings: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """保存自动好评设置"""
+    from db_manager import db_manager
+    
+    try:
+        success = db_manager.save_auto_review_settings(cid, settings)
+        return {"success": success, "message": "保存成功" if success else "保存失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"保存自动好评设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/auto-review-records/{cid}')
+def get_auto_review_records(cid: str, status: Optional[str] = None, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取自动好评记录列表"""
+    from db_manager import db_manager
+    
+    try:
+        records = db_manager.get_auto_review_records(cid, status)
+        return {"success": True, "records": records}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取自动好评记录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/auto-review-statistics/{cid}')
+def get_auto_review_statistics(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取自动好评统计信息"""
+    from db_manager import db_manager
+    
+    try:
+        statistics = db_manager.get_auto_review_statistics(cid)
+        return {"success": True, "statistics": statistics}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取自动好评统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================= 自动好评模板管理接口 =========================
+
+@app.get('/auto-review-templates/{cid}')
+def get_auto_review_templates(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取自动好评模板列表"""
+    from db_manager import db_manager
+    
+    try:
+        templates = db_manager.get_auto_review_templates(cid)
+        return {"success": True, "templates": templates}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取自动好评模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/auto-review-templates/{cid}')
+def add_auto_review_template(cid: str, template: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """添加自动好评模板"""
+    from db_manager import db_manager
+    
+    try:
+        # 检查模板数量是否已达上限
+        templates = db_manager.get_auto_review_templates(cid)
+        if len(templates) >= 20:
+            return {"success": False, "message": "模板数量已达上限（20个）"}
+        
+        content = template.get('content', '').strip()
+        if not content:
+            return {"success": False, "message": "模板内容不能为空"}
+        
+        success = db_manager.add_auto_review_template(cid, content)
+        return {"success": success, "message": "添加成功" if success else "添加失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"添加自动好评模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put('/auto-review-templates/{cid}/{template_id}')
+def update_auto_review_template(cid: str, template_id: int, template: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """更新自动好评模板"""
+    from db_manager import db_manager
+    
+    try:
+        content = template.get('content', '').strip()
+        enabled = template.get('enabled', True)
+        
+        if not content:
+            return {"success": False, "message": "模板内容不能为空"}
+        
+        success = db_manager.update_auto_review_template(template_id, content, enabled)
+        return {"success": success, "message": "更新成功" if success else "更新失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新自动好评模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put('/auto-review-templates/{cid}/{template_id}/toggle')
+def toggle_auto_review_template(cid: str, template_id: int, data: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)):
+    """切换自动好评模板启用状态"""
+    from db_manager import db_manager
+    
+    try:
+        enabled = data.get('enabled', True)
+        
+        # 获取模板当前内容
+        templates = db_manager.get_auto_review_templates(cid)
+        template = next((t for t in templates if t['id'] == template_id), None)
+        
+        if not template:
+            return {"success": False, "message": "模板不存在"}
+        
+        success = db_manager.update_auto_review_template(template_id, template['content'], enabled)
+        return {"success": success, "message": "操作成功" if success else "操作失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"切换自动好评模板状态失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/auto-review-templates/{cid}/{template_id}')
+def delete_auto_review_template(cid: str, template_id: int, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """删除自动好评模板"""
+    from db_manager import db_manager
+    
+    try:
+        success = db_manager.delete_auto_review_template(template_id)
+        return {"success": success, "message": "删除成功" if success else "删除失败"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除自动好评模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # 移除自动启动，由Start.py或手动启动
 # if __name__ == "__main__":
 #     uvicorn.run(app, host="0.0.0.0", port=8080)

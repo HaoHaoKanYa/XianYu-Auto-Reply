@@ -487,6 +487,174 @@ class DBManager:
             )
             ''')
 
+            # 创建自动求小红花设置表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS flower_request_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT FALSE,
+                delay_value INTEGER DEFAULT 3,
+                delay_unit TEXT DEFAULT 'days',
+                exclude_blacklist BOOLEAN DEFAULT TRUE,
+                exclude_dispute BOOLEAN DEFAULT TRUE,
+                exclude_competitor BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id)
+            )
+            ''')
+
+            # 创建自动收小红花设置表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS flower_collect_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT FALSE,
+                delay_value INTEGER DEFAULT 3,
+                delay_unit TEXT DEFAULT 'days',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id)
+            )
+            ''')
+
+            # 创建求小红花记录表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS flower_request_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL,
+                cookie_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                ship_time TIMESTAMP,
+                request_time TIMESTAMP,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(order_id)
+            )
+            ''')
+
+            # 创建收小红花记录表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS flower_collect_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL,
+                cookie_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                send_time TIMESTAMP,
+                collect_time TIMESTAMP,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(order_id)
+            )
+            ''')
+
+            # 创建自动求好评设置表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS review_request_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT FALSE,
+                delay_value INTEGER DEFAULT 3,
+                delay_unit TEXT DEFAULT 'minutes',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id)
+            )
+            ''')
+
+            # 创建求好评记录表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS review_request_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL,
+                cookie_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                completed_time TIMESTAMP,
+                request_time TIMESTAMP,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(order_id)
+            )
+            ''')
+
+            # 创建求好评模板表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS review_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+            )
+            ''')
+
+            # 创建自动好评设置表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS auto_review_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT FALSE,
+                delay_value INTEGER DEFAULT 0,
+                delay_unit TEXT DEFAULT 'seconds',
+                exclude_bad_review BOOLEAN DEFAULT FALSE,
+                exclude_medium_review BOOLEAN DEFAULT FALSE,
+                exclude_blacklist BOOLEAN DEFAULT FALSE,
+                exclude_dispute BOOLEAN DEFAULT FALSE,
+                exclude_competitor BOOLEAN DEFAULT FALSE,
+                sensitive_words TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id)
+            )
+            ''')
+
+            # 创建自动好评记录表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS auto_review_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL,
+                cookie_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                completed_time TIMESTAMP,
+                review_time TIMESTAMP,
+                status TEXT DEFAULT 'pending',
+                remark TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(order_id)
+            )
+            ''')
+
+            # 创建自动好评模板表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS auto_review_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+            )
+            ''')
+
             # 插入默认系统设置（不包括管理员密码，由reply_server.py初始化）
             cursor.execute('''
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
@@ -5563,6 +5731,1506 @@ class DBManager:
             except Exception as e:
                 logger.error(f"获取提醒记录失败: {e}")
                 return None
+
+    # ==================== 自动求小红花相关方法 ====================
+    
+    def get_flower_request_settings(self, cookie_id: str) -> Optional[Dict]:
+        """获取账号的求小红花设置
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            Dict: 求小红花设置，如果不存在则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT enabled, delay_value, delay_unit, exclude_blacklist, 
+                           exclude_dispute, exclude_competitor
+                    FROM flower_request_settings
+                    WHERE cookie_id = ?
+                ''', (cookie_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'enabled': bool(result[0]),
+                        'delay_value': result[1],
+                        'delay_unit': result[2],
+                        'exclude_blacklist': bool(result[3]),
+                        'exclude_dispute': bool(result[4]),
+                        'exclude_competitor': bool(result[5])
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"获取求小红花设置失败: {e}")
+                return None
+    
+    def save_flower_request_settings(self, cookie_id: str, settings: Dict) -> bool:
+        """保存求小红花设置
+        
+        Args:
+            cookie_id: 账号ID
+            settings: 求小红花设置
+            
+        Returns:
+            bool: 是否保存成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO flower_request_settings
+                    (cookie_id, enabled, delay_value, delay_unit, exclude_blacklist, 
+                     exclude_dispute, exclude_competitor, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    cookie_id,
+                    settings.get('enabled', False),
+                    settings.get('delay_value', 3),
+                    settings.get('delay_unit', 'days'),
+                    settings.get('exclude_blacklist', True),
+                    settings.get('exclude_dispute', True),
+                    settings.get('exclude_competitor', True)
+                ))
+                self.conn.commit()
+                logger.info(f"保存求小红花设置成功: {cookie_id}")
+                return True
+            except Exception as e:
+                logger.error(f"保存求小红花设置失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_enabled_flower_request_cookies(self) -> List[str]:
+        """获取所有启用了求小红花功能的账号ID列表
+        
+        Returns:
+            List[str]: 账号ID列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT cookie_id FROM flower_request_settings WHERE enabled = 1
+                ''')
+                return [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"获取启用求小红花的账号列表失败: {e}")
+                return []
+    
+    def create_flower_request_record(self, order_id: str, cookie_id: str, buyer_id: str,
+                                    ship_time, request_time) -> bool:
+        """创建求小红花记录
+        
+        Args:
+            order_id: 订单ID
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            ship_time: 发货时间
+            request_time: 求小红花时间
+            
+        Returns:
+            bool: 是否创建成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO flower_request_records
+                    (order_id, cookie_id, buyer_id, ship_time, request_time, status)
+                    VALUES (?, ?, ?, ?, ?, 'pending')
+                ''', (order_id, cookie_id, buyer_id, ship_time, request_time))
+                self.conn.commit()
+                logger.info(f"创建求小红花记录成功: 订单 {order_id}")
+                return True
+            except Exception as e:
+                logger.error(f"创建求小红花记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_pending_flower_requests(self, cookie_id: str, current_time) -> List[Dict]:
+        """获取待求小红花的订单列表
+        
+        Args:
+            cookie_id: 账号ID
+            current_time: 当前时间
+            
+        Returns:
+            List[Dict]: 待求小红花订单列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT order_id, buyer_id, ship_time, request_time
+                    FROM flower_request_records
+                    WHERE cookie_id = ? AND status = 'pending' AND request_time <= ?
+                    ORDER BY request_time ASC
+                ''', (cookie_id, current_time))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'ship_time': row[2],
+                        'request_time': row[3],
+                        'cookie_id': cookie_id
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取待求小红花订单列表失败: {e}")
+                return []
+    
+    def update_flower_request_record(self, order_id: str, request_time, status: str) -> bool:
+        """更新求小红花记录
+        
+        Args:
+            order_id: 订单ID
+            request_time: 求小红花时间
+            status: 状态
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE flower_request_records
+                    SET request_time = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                ''', (request_time, status, order_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新求小红花记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def update_flower_request_status(self, order_id: str, status: str) -> bool:
+        """更新求小红花记录状态
+        
+        Args:
+            order_id: 订单ID
+            status: 状态 (pending/completed/cancelled)
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE flower_request_records
+                    SET status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                ''', (status, order_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新求小红花状态失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_flower_request_records(self, cookie_id: str, status: str = None) -> List[Dict]:
+        """获取求小红花记录列表
+        
+        Args:
+            cookie_id: 账号ID
+            status: 状态过滤 (可选)
+            
+        Returns:
+            List[Dict]: 求小红花记录列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                if status:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, ship_time, request_time, status, created_at
+                        FROM flower_request_records
+                        WHERE cookie_id = ? AND status = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id, status))
+                else:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, ship_time, request_time, status, created_at
+                        FROM flower_request_records
+                        WHERE cookie_id = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'ship_time': row[2],
+                        'request_time': row[3],
+                        'status': row[4],
+                        'created_at': row[5]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取求小红花记录列表失败: {e}")
+                return []
+    
+    def get_flower_request_record(self, order_id: str) -> Optional[Dict]:
+        """获取指定订单的求小红花记录
+        
+        Args:
+            order_id: 订单ID
+            
+        Returns:
+            Optional[Dict]: 求小红花记录，不存在则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT order_id, cookie_id, buyer_id, ship_time, 
+                           request_time, status, created_at
+                    FROM flower_request_records
+                    WHERE order_id = ?
+                ''', (order_id,))
+                
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'order_id': row[0],
+                        'cookie_id': row[1],
+                        'buyer_id': row[2],
+                        'ship_time': row[3],
+                        'request_time': row[4],
+                        'status': row[5],
+                        'created_at': row[6]
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"获取求小红花记录失败: {e}")
+                return None
+
+    # ==================== 自动收小红花相关方法 ====================
+    
+    def get_flower_collect_settings(self, cookie_id: str) -> Optional[Dict]:
+        """获取账号的收小红花设置
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            Optional[Dict]: 收小红花设置，不存在则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT enabled, delay_value, delay_unit
+                    FROM flower_collect_settings
+                    WHERE cookie_id = ?
+                ''', (cookie_id,))
+                
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'enabled': bool(row[0]),
+                        'delay_value': row[1],
+                        'delay_unit': row[2]
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"获取收小红花设置失败: {e}")
+                return None
+    
+    def save_flower_collect_settings(self, cookie_id: str, settings: Dict) -> bool:
+        """保存收小红花设置
+        
+        Args:
+            cookie_id: 账号ID
+            settings: 收小红花设置
+            
+        Returns:
+            bool: 是否保存成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO flower_collect_settings
+                    (cookie_id, enabled, delay_value, delay_unit, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    cookie_id,
+                    settings.get('enabled', False),
+                    settings.get('delay_value', 3),
+                    settings.get('delay_unit', 'days')
+                ))
+                self.conn.commit()
+                logger.info(f"保存收小红花设置成功: {cookie_id}")
+                return True
+            except Exception as e:
+                logger.error(f"保存收小红花设置失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_enabled_flower_collect_cookies(self) -> List[str]:
+        """获取所有启用了收小红花功能的账号ID列表
+        
+        Returns:
+            List[str]: 账号ID列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT cookie_id FROM flower_collect_settings WHERE enabled = 1
+                ''')
+                return [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"获取启用收小红花的账号列表失败: {e}")
+                return []
+    
+    def create_flower_collect_record(self, order_id: str, cookie_id: str, buyer_id: str,
+                                    send_time, collect_time) -> bool:
+        """创建收小红花记录
+        
+        Args:
+            order_id: 订单ID
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            send_time: 买家送花时间
+            collect_time: 收小红花时间
+            
+        Returns:
+            bool: 是否创建成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO flower_collect_records
+                    (order_id, cookie_id, buyer_id, send_time, collect_time, status)
+                    VALUES (?, ?, ?, ?, ?, 'pending')
+                ''', (order_id, cookie_id, buyer_id, send_time, collect_time))
+                self.conn.commit()
+                logger.info(f"创建收小红花记录成功: 订单 {order_id}")
+                return True
+            except Exception as e:
+                logger.error(f"创建收小红花记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_pending_flower_collects(self, cookie_id: str, current_time) -> List[Dict]:
+        """获取待收取小红花的订单列表
+        
+        Args:
+            cookie_id: 账号ID
+            current_time: 当前时间
+            
+        Returns:
+            List[Dict]: 待收取小红花订单列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT order_id, buyer_id, send_time, collect_time
+                    FROM flower_collect_records
+                    WHERE cookie_id = ? AND status = 'pending' AND collect_time <= ?
+                    ORDER BY collect_time ASC
+                ''', (cookie_id, current_time))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'send_time': row[2],
+                        'collect_time': row[3],
+                        'cookie_id': cookie_id
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取待收取小红花订单列表失败: {e}")
+                return []
+    
+    def update_flower_collect_record(self, order_id: str, collect_time, status: str) -> bool:
+        """更新收小红花记录
+        
+        Args:
+            order_id: 订单ID
+            collect_time: 收小红花时间
+            status: 状态
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE flower_collect_records
+                    SET collect_time = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                ''', (collect_time, status, order_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新收小红花记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_flower_collect_records(self, cookie_id: str, status: str = None) -> List[Dict]:
+        """获取收小红花记录列表
+        
+        Args:
+            cookie_id: 账号ID
+            status: 状态过滤 (可选)
+            
+        Returns:
+            List[Dict]: 收小红花记录列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                if status:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, send_time, collect_time, status, created_at
+                        FROM flower_collect_records
+                        WHERE cookie_id = ? AND status = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id, status))
+                else:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, send_time, collect_time, status, created_at
+                        FROM flower_collect_records
+                        WHERE cookie_id = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'send_time': row[2],
+                        'collect_time': row[3],
+                        'status': row[4],
+                        'created_at': row[5]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取收小红花记录列表失败: {e}")
+                return []
+    
+    def get_flower_collect_statistics(self, cookie_id: str) -> Dict:
+        """获取收小红花统计信息
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            Dict: 统计信息
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                
+                # 总记录数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM flower_collect_records WHERE cookie_id = ?
+                ''', (cookie_id,))
+                total = cursor.fetchone()[0]
+                
+                # 待收取数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM flower_collect_records 
+                    WHERE cookie_id = ? AND status = 'pending'
+                ''', (cookie_id,))
+                pending = cursor.fetchone()[0]
+                
+                # 已完成数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM flower_collect_records 
+                    WHERE cookie_id = ? AND status = 'completed'
+                ''', (cookie_id,))
+                completed = cursor.fetchone()[0]
+                
+                return {
+                    'total': total,
+                    'pending': pending,
+                    'completed': completed
+                }
+            except Exception as e:
+                logger.error(f"获取收小红花统计信息失败: {e}")
+                return {'total': 0, 'pending': 0, 'completed': 0}
+
+    # ==================== 自动求好评相关方法 ====================
+    
+    def get_review_request_settings(self, cookie_id: str) -> Optional[Dict]:
+        """获取账号的求好评设置
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            Optional[Dict]: 求好评设置，不存在则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT enabled, delay_value, delay_unit
+                    FROM review_request_settings
+                    WHERE cookie_id = ?
+                ''', (cookie_id,))
+                
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'enabled': bool(row[0]),
+                        'delay_value': row[1],
+                        'delay_unit': row[2]
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"获取求好评设置失败: {e}")
+                return None
+    
+    def save_review_request_settings(self, cookie_id: str, settings: Dict) -> bool:
+        """保存求好评设置
+        
+        Args:
+            cookie_id: 账号ID
+            settings: 求好评设置
+            
+        Returns:
+            bool: 是否保存成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO review_request_settings
+                    (cookie_id, enabled, delay_value, delay_unit, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    cookie_id,
+                    settings.get('enabled', False),
+                    settings.get('delay_value', 3),
+                    settings.get('delay_unit', 'minutes')
+                ))
+                self.conn.commit()
+                logger.info(f"保存求好评设置成功: {cookie_id}")
+                return True
+            except Exception as e:
+                logger.error(f"保存求好评设置失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_enabled_review_request_cookies(self) -> List[str]:
+        """获取所有启用了求好评功能的账号ID列表
+        
+        Returns:
+            List[str]: 账号ID列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT cookie_id FROM review_request_settings WHERE enabled = 1
+                ''')
+                return [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"获取启用求好评的账号列表失败: {e}")
+                return []
+    
+    def create_review_request_record(self, order_id: str, cookie_id: str, buyer_id: str,
+                                    completed_time, request_time) -> bool:
+        """创建求好评记录
+        
+        Args:
+            order_id: 订单ID
+            cookie_id: 账号ID
+            buyer_id: 买家ID
+            completed_time: 确认收货时间
+            request_time: 求好评时间
+            
+        Returns:
+            bool: 是否创建成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO review_request_records
+                    (order_id, cookie_id, buyer_id, completed_time, request_time, status)
+                    VALUES (?, ?, ?, ?, ?, 'pending')
+                ''', (order_id, cookie_id, buyer_id, completed_time, request_time))
+                self.conn.commit()
+                logger.info(f"创建求好评记录成功: 订单 {order_id}")
+                return True
+            except Exception as e:
+                logger.error(f"创建求好评记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_pending_review_requests(self, cookie_id: str, current_time) -> List[Dict]:
+        """获取待求好评的订单列表
+        
+        Args:
+            cookie_id: 账号ID
+            current_time: 当前时间
+            
+        Returns:
+            List[Dict]: 待求好评订单列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT order_id, buyer_id, completed_time, request_time
+                    FROM review_request_records
+                    WHERE cookie_id = ? AND status = 'pending' AND request_time <= ?
+                    ORDER BY request_time ASC
+                ''', (cookie_id, current_time))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'completed_time': row[2],
+                        'request_time': row[3],
+                        'cookie_id': cookie_id
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取待求好评订单列表失败: {e}")
+                return []
+    
+    def update_review_request_record(self, order_id: str, request_time, status: str) -> bool:
+        """更新求好评记录
+        
+        Args:
+            order_id: 订单ID
+            request_time: 求好评时间
+            status: 状态
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE review_request_records
+                    SET request_time = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                ''', (request_time, status, order_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新求好评记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def update_review_request_status(self, order_id: str, status: str) -> bool:
+        """更新求好评记录状态
+        
+        Args:
+            order_id: 订单ID
+            status: 状态 (pending/completed/cancelled)
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE review_request_records
+                    SET status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                ''', (status, order_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新求好评状态失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_review_request_records(self, cookie_id: str, status: str = None) -> List[Dict]:
+        """获取求好评记录列表
+        
+        Args:
+            cookie_id: 账号ID
+            status: 状态过滤 (可选)
+            
+        Returns:
+            List[Dict]: 求好评记录列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                if status:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, completed_time, request_time, status, created_at
+                        FROM review_request_records
+                        WHERE cookie_id = ? AND status = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id, status))
+                else:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, completed_time, request_time, status, created_at
+                        FROM review_request_records
+                        WHERE cookie_id = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'completed_time': row[2],
+                        'request_time': row[3],
+                        'status': row[4],
+                        'created_at': row[5]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取求好评记录列表失败: {e}")
+                return []
+    
+    def get_review_request_statistics(self, cookie_id: str) -> Dict:
+        """获取求好评统计信息
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            Dict: 统计信息
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                
+                # 总记录数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM review_request_records WHERE cookie_id = ?
+                ''', (cookie_id,))
+                total = cursor.fetchone()[0]
+                
+                # 待发送数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM review_request_records 
+                    WHERE cookie_id = ? AND status = 'pending'
+                ''', (cookie_id,))
+                pending = cursor.fetchone()[0]
+                
+                # 已完成数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM review_request_records 
+                    WHERE cookie_id = ? AND status = 'completed'
+                ''', (cookie_id,))
+                completed = cursor.fetchone()[0]
+                
+                return {
+                    'total': total,
+                    'pending': pending,
+                    'completed': completed
+                }
+            except Exception as e:
+                logger.error(f"获取求好评统计信息失败: {e}")
+                return {'total': 0, 'pending': 0, 'completed': 0}
+    
+    # ==================== 求好评模板相关方法 ====================
+    
+    def get_review_templates(self, cookie_id: str) -> List[Dict]:
+        """获取求好评模板列表
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            List[Dict]: 模板列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT id, content, enabled
+                    FROM review_templates
+                    WHERE cookie_id = ? AND enabled = 1
+                    ORDER BY id ASC
+                ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'enabled': bool(row[2])
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取求好评模板列表失败: {e}")
+                return []
+    
+    def get_all_review_templates(self, cookie_id: str) -> List[Dict]:
+        """获取所有求好评模板（包括禁用的）
+        
+        Args:
+            cookie_id: 账号ID
+            
+        Returns:
+            List[Dict]: 模板列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT id, content, enabled, created_at
+                    FROM review_templates
+                    WHERE cookie_id = ?
+                    ORDER BY id ASC
+                ''', (cookie_id,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'enabled': bool(row[2]),
+                        'created_at': row[3]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"获取所有求好评模板失败: {e}")
+                return []
+    
+    def add_review_template(self, cookie_id: str, content: str) -> bool:
+        """添加求好评模板
+        
+        Args:
+            cookie_id: 账号ID
+            content: 模板内容
+            
+        Returns:
+            bool: 是否添加成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT INTO review_templates (cookie_id, content, enabled)
+                    VALUES (?, ?, 1)
+                ''', (cookie_id, content))
+                self.conn.commit()
+                logger.info(f"添加求好评模板成功: {cookie_id}")
+                return True
+            except Exception as e:
+                logger.error(f"添加求好评模板失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def update_review_template(self, template_id: int, content: str, enabled: bool) -> bool:
+        """更新求好评模板
+        
+        Args:
+            template_id: 模板ID
+            content: 模板内容
+            enabled: 是否启用
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE review_templates
+                    SET content = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (content, enabled, template_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新求好评模板失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def delete_review_template(self, template_id: int) -> bool:
+        """删除求好评模板
+        
+        Args:
+            template_id: 模板ID
+            
+        Returns:
+            bool: 是否删除成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    DELETE FROM review_templates WHERE id = ?
+                ''', (template_id,))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"删除求好评模板失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    # ==================== 自动好评相关方法 ====================
+    
+    def get_auto_review_settings(self, cookie_id: str) -> Optional[Dict]:
+        """获取自动好评设置
+        
+        Args:
+            cookie_id: Cookie ID
+            
+        Returns:
+            Dict: 设置信息，如果不存在则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT * FROM auto_review_settings WHERE cookie_id = ?
+                ''', (cookie_id,))
+                row = cursor.fetchone()
+                
+                if row:
+                    columns = [desc[0] for desc in cursor.description]
+                    return dict(zip(columns, row))
+                return None
+            except Exception as e:
+                logger.error(f"获取自动好评设置失败: {e}")
+                return None
+    
+    def save_auto_review_settings(self, cookie_id: str, settings: Dict) -> bool:
+        """保存自动好评设置
+        
+        Args:
+            cookie_id: Cookie ID
+            settings: 设置信息
+            
+        Returns:
+            bool: 是否保存成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR REPLACE INTO auto_review_settings (
+                        cookie_id, enabled, delay_value, delay_unit,
+                        exclude_bad_review, exclude_medium_review,
+                        exclude_blacklist, exclude_dispute, exclude_competitor,
+                        sensitive_words, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    cookie_id,
+                    settings.get('enabled', False),
+                    settings.get('delay_value', 0),
+                    settings.get('delay_unit', 'seconds'),
+                    settings.get('exclude_bad_review', False),
+                    settings.get('exclude_medium_review', False),
+                    settings.get('exclude_blacklist', False),
+                    settings.get('exclude_dispute', False),
+                    settings.get('exclude_competitor', False),
+                    settings.get('sensitive_words', '')
+                ))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"保存自动好评设置失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_auto_review_enabled_cookies(self) -> List[Dict]:
+        """获取所有启用了自动好评的账号
+        
+        Returns:
+            List[Dict]: 账号列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT cookie_id, enabled, delay_value, delay_unit,
+                           exclude_bad_review, exclude_medium_review,
+                           exclude_blacklist, exclude_dispute, exclude_competitor,
+                           sensitive_words
+                    FROM auto_review_settings
+                    WHERE enabled = 1
+                ''')
+                rows = cursor.fetchall()
+                
+                result = []
+                for row in rows:
+                    result.append({
+                        'cookie_id': row[0],
+                        'settings': {
+                            'enabled': bool(row[1]),
+                            'delay_value': row[2],
+                            'delay_unit': row[3],
+                            'exclude_bad_review': bool(row[4]),
+                            'exclude_medium_review': bool(row[5]),
+                            'exclude_blacklist': bool(row[6]),
+                            'exclude_dispute': bool(row[7]),
+                            'exclude_competitor': bool(row[8]),
+                            'sensitive_words': row[9]
+                        }
+                    })
+                return result
+            except Exception as e:
+                logger.error(f"获取启用自动好评的账号失败: {e}")
+                return []
+    
+    def get_pending_review_orders(self, cookie_id: str) -> List[Dict]:
+        """获取待好评的订单
+        
+        Args:
+            cookie_id: Cookie ID
+            
+        Returns:
+            List[Dict]: 订单列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT r.order_id, r.buyer_id, r.completed_time, r.status,
+                           o.item_id, o.amount
+                    FROM auto_review_records r
+                    LEFT JOIN orders o ON r.order_id = o.order_id
+                    WHERE r.cookie_id = ? AND r.status = 'pending'
+                    ORDER BY r.completed_time ASC
+                ''', (cookie_id,))
+                rows = cursor.fetchall()
+                
+                result = []
+                for row in rows:
+                    result.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'completed_time': row[2],
+                        'status': row[3],
+                        'item_id': row[4],
+                        'amount': row[5]
+                    })
+                return result
+            except Exception as e:
+                logger.error(f"获取待好评订单失败: {e}")
+                return []
+    
+    def get_auto_review_records(self, cookie_id: str, status: str = None) -> List[Dict]:
+        """获取自动好评记录列表
+        
+        Args:
+            cookie_id: Cookie ID
+            status: 状态筛选（可选）
+            
+        Returns:
+            List[Dict]: 记录列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                
+                if status:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, completed_time, review_time, 
+                               status, remark, created_at, updated_at
+                        FROM auto_review_records
+                        WHERE cookie_id = ? AND status = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id, status))
+                else:
+                    self._execute_sql(cursor, '''
+                        SELECT order_id, buyer_id, completed_time, review_time, 
+                               status, remark, created_at, updated_at
+                        FROM auto_review_records
+                        WHERE cookie_id = ?
+                        ORDER BY created_at DESC
+                    ''', (cookie_id,))
+                
+                rows = cursor.fetchall()
+                
+                result = []
+                for row in rows:
+                    result.append({
+                        'order_id': row[0],
+                        'buyer_id': row[1],
+                        'completed_time': row[2],
+                        'review_time': row[3],
+                        'status': row[4],
+                        'remark': row[5],
+                        'created_at': row[6],
+                        'updated_at': row[7]
+                    })
+                return result
+            except Exception as e:
+                logger.error(f"获取自动好评记录失败: {e}")
+                return []
+    
+    def get_auto_review_statistics(self, cookie_id: str) -> Dict:
+        """获取自动好评统计信息
+        
+        Args:
+            cookie_id: Cookie ID
+            
+        Returns:
+            Dict: 统计信息
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                
+                # 获取总记录数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM auto_review_records WHERE cookie_id = ?
+                ''', (cookie_id,))
+                total = cursor.fetchone()[0]
+                
+                # 获取待好评数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM auto_review_records 
+                    WHERE cookie_id = ? AND status = 'pending'
+                ''', (cookie_id,))
+                pending = cursor.fetchone()[0]
+                
+                # 获取已完成数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM auto_review_records 
+                    WHERE cookie_id = ? AND status = 'completed'
+                ''', (cookie_id,))
+                completed = cursor.fetchone()[0]
+                
+                # 获取已跳过数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM auto_review_records 
+                    WHERE cookie_id = ? AND status = 'skipped'
+                ''', (cookie_id,))
+                skipped = cursor.fetchone()[0]
+                
+                # 获取失败数
+                self._execute_sql(cursor, '''
+                    SELECT COUNT(*) FROM auto_review_records 
+                    WHERE cookie_id = ? AND status = 'failed'
+                ''', (cookie_id,))
+                failed = cursor.fetchone()[0]
+                
+                return {
+                    'total': total,
+                    'pending': pending,
+                    'completed': completed,
+                    'skipped': skipped,
+                    'failed': failed
+                }
+            except Exception as e:
+                logger.error(f"获取自动好评统计信息失败: {e}")
+                return {
+                    'total': 0,
+                    'pending': 0,
+                    'completed': 0,
+                    'skipped': 0,
+                    'failed': 0
+                }
+    
+    def create_auto_review_record(self, order_id: str, cookie_id: str, buyer_id: str, completed_time: str) -> bool:
+        """创建自动好评记录
+        
+        Args:
+            order_id: 订单ID
+            cookie_id: Cookie ID
+            buyer_id: 买家ID
+            completed_time: 确认收货时间
+            
+        Returns:
+            bool: 是否创建成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT OR IGNORE INTO auto_review_records (
+                        order_id, cookie_id, buyer_id, completed_time, status
+                    ) VALUES (?, ?, ?, ?, 'pending')
+                ''', (order_id, cookie_id, buyer_id, completed_time))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"创建自动好评记录失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def update_auto_review_record_status(self, order_id: str, status: str, remark: str = '') -> bool:
+        """更新自动好评记录状态
+        
+        Args:
+            order_id: 订单ID
+            status: 状态 (pending/completed/failed/skipped)
+            remark: 备注信息
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                
+                if status == 'completed':
+                    self._execute_sql(cursor, '''
+                        UPDATE auto_review_records
+                        SET status = ?, review_time = CURRENT_TIMESTAMP, remark = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE order_id = ?
+                    ''', (status, remark, order_id))
+                else:
+                    self._execute_sql(cursor, '''
+                        UPDATE auto_review_records
+                        SET status = ?, remark = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE order_id = ?
+                    ''', (status, remark, order_id))
+                
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新自动好评记录状态失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_random_review_template(self, cookie_id: str) -> Optional[Dict]:
+        """获取随机好评模板
+        
+        Args:
+            cookie_id: Cookie ID
+            
+        Returns:
+            Dict: 模板信息，如果没有可用模板则返回None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT id, content FROM auto_review_templates
+                    WHERE cookie_id = ? AND enabled = 1
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                ''', (cookie_id,))
+                row = cursor.fetchone()
+                
+                if row:
+                    return {'id': row[0], 'content': row[1]}
+                return None
+            except Exception as e:
+                logger.error(f"获取随机好评模板失败: {e}")
+                return None
+    
+    def get_auto_review_templates(self, cookie_id: str) -> List[Dict]:
+        """获取自动好评模板列表
+        
+        Args:
+            cookie_id: Cookie ID
+            
+        Returns:
+            List[Dict]: 模板列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    SELECT id, content, enabled, created_at, updated_at
+                    FROM auto_review_templates
+                    WHERE cookie_id = ?
+                    ORDER BY created_at DESC
+                ''', (cookie_id,))
+                rows = cursor.fetchall()
+                
+                result = []
+                for row in rows:
+                    result.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'enabled': bool(row[2]),
+                        'created_at': row[3],
+                        'updated_at': row[4]
+                    })
+                return result
+            except Exception as e:
+                logger.error(f"获取自动好评模板列表失败: {e}")
+                return []
+    
+    def add_auto_review_template(self, cookie_id: str, content: str) -> bool:
+        """添加自动好评模板
+        
+        Args:
+            cookie_id: Cookie ID
+            content: 模板内容
+            
+        Returns:
+            bool: 是否添加成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    INSERT INTO auto_review_templates (cookie_id, content, enabled)
+                    VALUES (?, ?, 1)
+                ''', (cookie_id, content))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"添加自动好评模板失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def update_auto_review_template(self, template_id: int, content: str, enabled: bool) -> bool:
+        """更新自动好评模板
+        
+        Args:
+            template_id: 模板ID
+            content: 模板内容
+            enabled: 是否启用
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    UPDATE auto_review_templates
+                    SET content = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (content, enabled, template_id))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新自动好评模板失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def delete_auto_review_template(self, template_id: int) -> bool:
+        """删除自动好评模板
+        
+        Args:
+            template_id: 模板ID
+            
+        Returns:
+            bool: 是否删除成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, '''
+                    DELETE FROM auto_review_templates WHERE id = ?
+                ''', (template_id,))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"删除自动好评模板失败: {e}")
+                self.conn.rollback()
+                return False
+    
+    def get_buyer_review(self, order_id: str, cookie_id: str = None) -> Optional[Dict]:
+        """获取买家评价信息（从闲鱼API获取）
+        
+        Args:
+            order_id: 订单ID
+            cookie_id: Cookie ID（可选，用于获取对应的XianyuAutoAsync实例）
+            
+        Returns:
+            Dict: 评价信息，如果没有则返回None
+        """
+        try:
+            # 如果没有提供cookie_id，尝试从订单表中获取
+            if not cookie_id:
+                with self.lock:
+                    cursor = self.conn.cursor()
+                    self._execute_sql(cursor, '''
+                        SELECT cookie_id FROM orders WHERE order_id = ?
+                    ''', (order_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        cookie_id = row[0]
+                    else:
+                        logger.warning(f"订单 {order_id} 不存在，无法获取买家评价")
+                        return None
+            
+            # 获取XianyuAutoAsync实例
+            import cookie_manager as cm
+            xianyu_instance = cm.manager.get_xianyu_instance(cookie_id)
+            if not xianyu_instance:
+                logger.warning(f"无法获取账号 {cookie_id} 的XianyuAutoAsync实例")
+                return None
+            
+            # 异步调用获取买家评价
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            review_info = loop.run_until_complete(xianyu_instance.get_buyer_review(order_id))
+            return review_info
+            
+        except Exception as e:
+            logger.error(f"获取买家评价失败: {e}")
+            return None
+    
+    def has_dispute_record(self, order_id: str, cookie_id: str = None) -> bool:
+        """检查订单是否存在售后/投诉/纠纷记录（从闲鱼API获取）
+        
+        Args:
+            order_id: 订单ID
+            cookie_id: Cookie ID（可选，用于获取对应的XianyuAutoAsync实例）
+            
+        Returns:
+            bool: 是否存在记录
+        """
+        try:
+            # 如果没有提供cookie_id，尝试从订单表中获取
+            if not cookie_id:
+                with self.lock:
+                    cursor = self.conn.cursor()
+                    self._execute_sql(cursor, '''
+                        SELECT cookie_id FROM orders WHERE order_id = ?
+                    ''', (order_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        cookie_id = row[0]
+                    else:
+                        logger.warning(f"订单 {order_id} 不存在，无法检查售后状态")
+                        return False
+            
+            # 获取XianyuAutoAsync实例
+            import cookie_manager as cm
+            xianyu_instance = cm.manager.get_xianyu_instance(cookie_id)
+            if not xianyu_instance:
+                logger.warning(f"无法获取账号 {cookie_id} 的XianyuAutoAsync实例")
+                return False
+            
+            # 异步调用检查售后状态
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            has_dispute = loop.run_until_complete(xianyu_instance.check_dispute_record(order_id))
+            return has_dispute
+            
+        except Exception as e:
+            logger.error(f"检查订单售后状态失败: {e}")
+            return False
 
 
 # 全局单例

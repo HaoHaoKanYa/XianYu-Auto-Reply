@@ -6297,6 +6297,222 @@ class XianyuLive:
             logger.error(f"【{self.cookie_id}】发送图片消息失败: {self._safe_str(e)}")
             raise
 
+    async def send_review(self, order_id: str, review_content: str) -> bool:
+        """发送订单好评
+        
+        Args:
+            order_id: 订单ID
+            review_content: 好评内容
+            
+        Returns:
+            bool: 是否发送成功
+        """
+        try:
+            logger.info(f"【{self.cookie_id}】开始发送订单好评: {order_id}")
+            logger.info(f"【{self.cookie_id}】好评内容: {review_content}")
+            
+            # 构造好评请求参数
+            params = {
+                't': str(int(time.time() * 1000)),
+                'api': 'mtop.taobao.idle.order.rate.submit',
+                'v': '1.0',
+                'type': 'originaljson',
+                'dataType': 'json',
+                'timeout': '20000',
+                'AntiCreep': 'true',
+                'AntiFlood': 'true',
+                'H5Request': 'true',
+                'data': json.dumps({
+                    'orderId': order_id,
+                    'rate': '1',  # 1表示好评
+                    'content': review_content,
+                    'anonymous': '0'  # 0表示不匿名
+                }, separators=(',', ':'))
+            }
+            
+            # 生成签名
+            token = self.cookies.get('_m_h5_tk', '').split('_')[0] if self.cookies.get('_m_h5_tk') else ''
+            from utils.xianyu_utils import generate_sign
+            sign = generate_sign(params['t'], token, params['data'])
+            params['sign'] = sign
+            
+            # 发送请求
+            url = 'https://h5api.m.taobao.com/h5/mtop.taobao.idle.order.rate.submit/1.0/'
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://market.m.taobao.com/',
+                'Cookie': self.cookies_str
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, headers=headers) as response:
+                    result = await response.json()
+                    
+                    if result.get('ret') and result['ret'][0] == 'SUCCESS::调用成功':
+                        logger.info(f"【{self.cookie_id}】订单好评发送成功: {order_id}")
+                        return True
+                    else:
+                        logger.error(f"【{self.cookie_id}】订单好评发送失败: {result}")
+                        return False
+                        
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】发送订单好评异常: {self._safe_str(e)}")
+            return False
+    
+    async def get_buyer_review(self, order_id: str) -> dict:
+        """获取买家对订单的评价
+        
+        Args:
+            order_id: 订单ID
+            
+        Returns:
+            dict: 评价信息，包含rating(好评/中评/差评)和content(评价内容)
+        """
+        try:
+            logger.info(f"【{self.cookie_id}】开始获取买家评价: {order_id}")
+            
+            # 构造获取评价请求参数
+            params = {
+                't': str(int(time.time() * 1000)),
+                'api': 'mtop.taobao.idle.order.rate.query',
+                'v': '1.0',
+                'type': 'originaljson',
+                'dataType': 'json',
+                'timeout': '20000',
+                'AntiCreep': 'true',
+                'AntiFlood': 'true',
+                'H5Request': 'true',
+                'data': json.dumps({
+                    'orderId': order_id
+                }, separators=(',', ':'))
+            }
+            
+            # 生成签名
+            token = self.cookies.get('_m_h5_tk', '').split('_')[0] if self.cookies.get('_m_h5_tk') else ''
+            from utils.xianyu_utils import generate_sign
+            sign = generate_sign(params['t'], token, params['data'])
+            params['sign'] = sign
+            
+            # 发送请求
+            url = 'https://h5api.m.taobao.com/h5/mtop.taobao.idle.order.rate.query/1.0/'
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://market.m.taobao.com/',
+                'Cookie': self.cookies_str
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, headers=headers) as response:
+                    result = await response.json()
+                    
+                    if result.get('ret') and result['ret'][0] == 'SUCCESS::调用成功':
+                        data = result.get('data', {})
+                        buyer_rate = data.get('buyerRate', {})
+                        
+                        if buyer_rate:
+                            # 解析评价等级：1-好评，2-中评，3-差评
+                            rate_value = buyer_rate.get('rate', 0)
+                            rating_map = {1: 'good', 2: 'medium', 3: 'bad'}
+                            rating = rating_map.get(rate_value, 'unknown')
+                            
+                            review_info = {
+                                'rating': rating,
+                                'content': buyer_rate.get('content', ''),
+                                'create_time': buyer_rate.get('createTime', ''),
+                                'anonymous': buyer_rate.get('anonymous', False)
+                            }
+                            
+                            logger.info(f"【{self.cookie_id}】买家评价获取成功: {order_id}, 评级: {rating}")
+                            return review_info
+                        else:
+                            logger.info(f"【{self.cookie_id}】买家尚未评价: {order_id}")
+                            return None
+                    else:
+                        logger.error(f"【{self.cookie_id}】获取买家评价失败: {result}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】获取买家评价异常: {self._safe_str(e)}")
+            return None
+    
+    async def check_dispute_record(self, order_id: str) -> bool:
+        """检查订单是否存在售后/投诉/纠纷记录
+        
+        Args:
+            order_id: 订单ID
+            
+        Returns:
+            bool: 是否存在售后/投诉/纠纷记录
+        """
+        try:
+            logger.info(f"【{self.cookie_id}】开始检查订单售后状态: {order_id}")
+            
+            # 构造查询售后状态请求参数
+            params = {
+                't': str(int(time.time() * 1000)),
+                'api': 'mtop.taobao.idle.order.aftermarket.query',
+                'v': '1.0',
+                'type': 'originaljson',
+                'dataType': 'json',
+                'timeout': '20000',
+                'AntiCreep': 'true',
+                'AntiFlood': 'true',
+                'H5Request': 'true',
+                'data': json.dumps({
+                    'orderId': order_id
+                }, separators=(',', ':'))
+            }
+            
+            # 生成签名
+            token = self.cookies.get('_m_h5_tk', '').split('_')[0] if self.cookies.get('_m_h5_tk') else ''
+            from utils.xianyu_utils import generate_sign
+            sign = generate_sign(params['t'], token, params['data'])
+            params['sign'] = sign
+            
+            # 发送请求
+            url = 'https://h5api.m.taobao.com/h5/mtop.taobao.idle.order.aftermarket.query/1.0/'
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://market.m.taobao.com/',
+                'Cookie': self.cookies_str
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, headers=headers) as response:
+                    result = await response.json()
+                    
+                    if result.get('ret') and result['ret'][0] == 'SUCCESS::调用成功':
+                        data = result.get('data', {})
+                        
+                        # 检查是否有售后记录
+                        has_aftermarket = data.get('hasAftermarket', False)
+                        aftermarket_status = data.get('aftermarketStatus', '')
+                        
+                        # 检查是否有投诉记录
+                        has_complaint = data.get('hasComplaint', False)
+                        
+                        # 检查是否有纠纷记录
+                        has_dispute = data.get('hasDispute', False)
+                        
+                        has_record = has_aftermarket or has_complaint or has_dispute
+                        
+                        if has_record:
+                            logger.info(f"【{self.cookie_id}】订单存在售后/投诉/纠纷记录: {order_id}")
+                            logger.info(f"【{self.cookie_id}】售后: {has_aftermarket}, 投诉: {has_complaint}, 纠纷: {has_dispute}")
+                        else:
+                            logger.info(f"【{self.cookie_id}】订单无售后/投诉/纠纷记录: {order_id}")
+                        
+                        return has_record
+                    else:
+                        logger.warning(f"【{self.cookie_id}】查询售后状态失败: {result}")
+                        # 查询失败时返回False，不影响正常流程
+                        return False
+                        
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】检查订单售后状态异常: {self._safe_str(e)}")
+            # 异常时返回False，不影响正常流程
+            return False
+
     async def send_image_from_file(self, ws, cid, toid, image_path):
         """从本地文件发送图片"""
         try:

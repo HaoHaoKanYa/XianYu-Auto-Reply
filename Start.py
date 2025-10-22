@@ -153,6 +153,42 @@ async def main():
     except Exception as e:
         logger.error(f"启动自动提醒收货管理器失败: {e}")
 
+    # 启动自动求小红花管理器
+    print("启动自动求小红花管理器...")
+    try:
+        from flower_request_manager import flower_request_manager
+        await flower_request_manager.start()
+        logger.info("自动求小红花管理器已启动")
+    except Exception as e:
+        logger.error(f"启动自动求小红花管理器失败: {e}")
+
+    # 启动自动收小红花管理器
+    print("启动自动收小红花管理器...")
+    try:
+        from flower_collect_manager import flower_collect_manager
+        await flower_collect_manager.start()
+        logger.info("自动收小红花管理器已启动")
+    except Exception as e:
+        logger.error(f"启动自动收小红花管理器失败: {e}")
+
+    # 启动自动求好评管理器
+    print("启动自动求好评管理器...")
+    try:
+        from review_request_manager import review_request_manager
+        await review_request_manager.start()
+        logger.info("自动求好评管理器已启动")
+    except Exception as e:
+        logger.error(f"启动自动求好评管理器失败: {e}")
+
+    # 启动自动好评管理器
+    print("启动自动好评管理器...")
+    try:
+        from auto_review_manager import auto_review_manager
+        await auto_review_manager.start()
+        logger.info("自动好评管理器已启动")
+    except Exception as e:
+        logger.error(f"启动自动好评管理器失败: {e}")
+
     # 上报用户统计
     try:
         await report_user_count()

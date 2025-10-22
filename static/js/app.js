@@ -7,6 +7,8 @@ let keywordsData = {};
 let currentCookieId = '';
 let editCookieId = '';
 let reminderCookieId = ''; // 提醒页面专用的账号ID
+let flowerRequestCookieId = ''; // 求小红花页面专用的账号ID
+let flowerCollectCookieId = ''; // 收小红花页面专用的账号ID
 let authToken = localStorage.getItem('auth_token');
 let dashboardData = {
     accounts: [],
@@ -109,6 +111,15 @@ function showSection(sectionName) {
             break;
         case 'reminder':        // 【提醒收货菜单】
             loadReminderPage();
+            break;
+        case 'flower-request':  // 【求小红花菜单】
+            loadFlowerRequestPage();
+            break;
+        case 'flower-collect':  // 【收小红花菜单】
+            loadFlowerCollectPage();
+            break;
+        case 'review-request':  // 【求好评菜单】
+            loadReviewRequestPage();
             break;
         case 'system-settings':    // 【系统设置菜单】
             loadSystemSettings();
@@ -10797,6 +10808,31 @@ async function loadReminderPage() {
     }
 }
 
+// 加载求小红花页面
+async function loadFlowerRequestPage() {
+    try {
+        // 加载账号列表到下拉框
+        const cookies = await fetchJSON(apiBase + '/cookies/details');
+        const select = document.getElementById('flowerRequestCookieFilter');
+
+        if (select) {
+            // 清空现有选项（保留第一个"请选择账号"选项）
+            select.innerHTML = '<option value="">请选择账号</option>';
+
+            // 添加账号选项
+            cookies.forEach(cookie => {
+                const option = document.createElement('option');
+                option.value = cookie.id;
+                option.textContent = cookie.id;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载求小红花页面失败:', error);
+        showToast('加载账号列表失败', 'error');
+    }
+}
+
 // 提醒收货页面账号选择变化
 function onReminderCookieChange() {
     const select = document.getElementById('reminderCookieFilter');
@@ -11438,3 +11474,1523 @@ async function triggerRemindersNow() {
         toggleLoading(false);
     }
 }
+
+
+// ==================== 求小红花功能 ====================
+
+// 求小红花页面账号选择变化
+function onFlowerRequestCookieChange() {
+    const select = document.getElementById('flowerRequestCookieFilter');
+    if (select) {
+        flowerRequestCookieId = select.value;
+        console.log('选择的求小红花账号:', flowerRequestCookieId);
+    }
+}
+
+// 打开求小红花设置管理器
+async function openFlowerRequestSettings() {
+    if (!flowerRequestCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        // 加载求小红花设置
+        const response = await fetch(`/flower-request-settings/${flowerRequestCookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取求小红花设置失败');
+        }
+
+        const data = await response.json();
+        const settings = data.settings;
+
+        // 填充表单
+        document.getElementById('flowerRequestEnabled').checked = settings.enabled;
+        document.getElementById('flowerDelayValue').value = settings.delay_value;
+        document.getElementById('flowerDelayUnit').value = settings.delay_unit;
+        document.getElementById('flowerExcludeBlacklist').checked = settings.exclude_blacklist;
+        document.getElementById('flowerExcludeDispute').checked = settings.exclude_dispute;
+        document.getElementById('flowerExcludeCompetitor').checked = settings.exclude_competitor;
+
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('flowerRequestSettingsModal'));
+        modal.show();
+
+    } catch (error) {
+        console.error('加载求小红花设置失败:', error);
+        showToast('加载求小红花设置失败', 'error');
+    }
+}
+
+// 保存求小红花设置
+async function saveFlowerRequestSettings() {
+    if (!flowerRequestCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        const settings = {
+            enabled: document.getElementById('flowerRequestEnabled').checked,
+            delay_value: parseInt(document.getElementById('flowerDelayValue').value),
+            delay_unit: document.getElementById('flowerDelayUnit').value,
+            exclude_blacklist: document.getElementById('flowerExcludeBlacklist').checked,
+            exclude_dispute: document.getElementById('flowerExcludeDispute').checked,
+            exclude_competitor: document.getElementById('flowerExcludeCompetitor').checked
+        };
+
+        // 验证输入
+        if (settings.delay_value < 1) {
+            showToast('延迟时间必须大于0', 'warning');
+            return;
+        }
+
+        const response = await fetch(`/flower-request-settings/${flowerRequestCookieId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify(settings)
+        });
+
+        if (!response.ok) {
+            throw new Error('保存求小红花设置失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('求小红花设置保存成功', 'success');
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('flowerRequestSettingsModal'));
+            modal.hide();
+        } else {
+            showToast('保存失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('保存求小红花设置失败:', error);
+        showToast('保存求小红花设置失败', 'error');
+    }
+}
+
+// 打开求小红花记录查看器
+async function openFlowerRequestRecords() {
+    if (!flowerRequestCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        // 加载求小红花记录
+        const response = await fetch(`/flower-request-records/${flowerRequestCookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取求小红花记录失败');
+        }
+
+        const data = await response.json();
+        const records = data.records;
+
+        // 渲染求小红花记录表格
+        const tbody = document.getElementById('flowerRequestRecordsTableBody');
+        tbody.innerHTML = '';
+
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">暂无求小红花记录</td></tr>';
+        } else {
+            records.forEach(record => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${record.order_id}</td>
+                    <td>${record.buyer_id}</td>
+                    <td>${record.ship_time || '-'}</td>
+                    <td>${record.request_time || '-'}</td>
+                    <td><span class="badge bg-${getStatusBadgeClass(record.status)}">${getStatusText(record.status)}</span></td>
+                    <td>${record.created_at}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('flowerRequestRecordsModal'));
+        modal.show();
+
+    } catch (error) {
+        console.error('加载求小红花记录失败:', error);
+        showToast('加载求小红花记录失败', 'error');
+    }
+}
+
+// 查看求小红花统计
+async function viewFlowerRequestStatistics() {
+    if (!flowerRequestCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        // 加载求小红花统计
+        const response = await fetch(`/flower-request-statistics/${flowerRequestCookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取求小红花统计失败');
+        }
+
+        const data = await response.json();
+        const stats = data.statistics;
+
+        // 填充统计数据
+        document.getElementById('flowerStatTotalOrders').textContent = stats.total_orders;
+        document.getElementById('flowerStatPendingOrders').textContent = stats.pending_orders;
+        document.getElementById('flowerStatCompletedOrders').textContent = stats.completed_orders;
+        document.getElementById('flowerStatCancelledOrders').textContent = stats.cancelled_orders;
+
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('flowerRequestStatisticsModal'));
+        modal.show();
+
+    } catch (error) {
+        console.error('加载求小红花统计失败:', error);
+        showToast('加载求小红花统计失败', 'error');
+    }
+}
+
+// 扫描已发货订单（求小红花）
+async function scanShippedOrdersForFlower() {
+    if (!flowerRequestCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    if (!confirm('确定要扫描已发货订单并创建求小红花记录吗？\n\n此操作会为所有已发货但未创建求小红花记录的订单创建记录。')) {
+        return;
+    }
+
+    try {
+        toggleLoading(true);
+
+        const response = await fetch(`/flower-request-scan-orders/${flowerRequestCookieId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('扫描订单失败');
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(data.message, 'success');
+            console.log('扫描结果:', data.result);
+        } else {
+            showToast(data.message || '扫描失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('扫描订单失败:', error);
+        showToast('扫描订单失败', 'error');
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+// 测试发送求小红花
+async function testSendFlowerRequest() {
+    if (!flowerRequestCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    if (!confirm('确定要测试发送求小红花消息吗？\n\n这将向第一个待求小红花的订单买家发送一条求小红花消息。')) {
+        return;
+    }
+
+    try {
+        toggleLoading(true);
+
+        const response = await fetch(`/flower-request-test-send/${flowerRequestCookieId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('测试发送失败');
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(data.message, 'success');
+        } else {
+            showToast(data.message || '测试发送失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('测试发送失败:', error);
+        showToast('测试发送失败', 'error');
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+// 立即触发所有求小红花
+async function triggerFlowerRequestsNow() {
+    if (!flowerRequestCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    if (!confirm('确定要立即触发所有待求小红花订单吗？\n\n这将把所有待求小红花订单的求小红花时间设置为当前时间，求小红花任务将在1分钟内执行。\n\n⚠️ 此功能主要用于测试，请谨慎使用！')) {
+        return;
+    }
+
+    try {
+        toggleLoading(true);
+
+        const response = await fetch(`/flower-request-trigger-now/${flowerRequestCookieId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('触发求小红花失败');
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(data.message, 'success');
+            console.log('触发结果:', data);
+        } else {
+            showToast(data.message || '触发失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('触发求小红花失败:', error);
+        showToast('触发求小红花失败', 'error');
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+
+// ==================== 收小红花功能 ====================
+
+// 收小红花页面账号选择变化
+function onFlowerCollectCookieChange() {
+    const select = document.getElementById('flowerCollectCookieFilter');
+    if (select) {
+        flowerCollectCookieId = select.value;
+        console.log('选择的收小红花账号:', flowerCollectCookieId);
+    }
+}
+
+// 加载收小红花页面
+async function loadFlowerCollectPage() {
+    try {
+        // 加载账号列表到下拉框
+        const cookies = await fetchJSON(apiBase + '/cookies/details');
+        const select = document.getElementById('flowerCollectCookieFilter');
+
+        if (select) {
+            // 清空现有选项（保留第一个"请选择账号"选项）
+            select.innerHTML = '<option value="">请选择账号</option>';
+
+            // 添加账号选项
+            cookies.forEach(cookie => {
+                const option = document.createElement('option');
+                option.value = cookie.id;
+                option.textContent = cookie.id;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载收小红花页面失败:', error);
+        showToast('加载账号列表失败', 'error');
+    }
+}
+
+// 打开收小红花设置管理器
+async function openFlowerCollectSettings() {
+    if (!flowerCollectCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        // 加载收小红花设置
+        const response = await fetch(`/flower-collect-settings/${flowerCollectCookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取收小红花设置失败');
+        }
+
+        const data = await response.json();
+        const settings = data.settings;
+
+        // 填充表单
+        document.getElementById('flowerCollectEnabled').checked = settings.enabled;
+        document.getElementById('collectDelayValue').value = settings.delay_value;
+        document.getElementById('collectDelayUnit').value = settings.delay_unit;
+
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('flowerCollectSettingsModal'));
+        modal.show();
+
+    } catch (error) {
+        console.error('加载收小红花设置失败:', error);
+        showToast('加载收小红花设置失败', 'error');
+    }
+}
+
+// 保存收小红花设置
+async function saveFlowerCollectSettings() {
+    if (!flowerCollectCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        const settings = {
+            enabled: document.getElementById('flowerCollectEnabled').checked,
+            delay_value: parseInt(document.getElementById('collectDelayValue').value),
+            delay_unit: document.getElementById('collectDelayUnit').value
+        };
+
+        // 验证输入
+        if (settings.delay_value < 1) {
+            showToast('延迟时间必须大于0', 'warning');
+            return;
+        }
+
+        const response = await fetch(`/flower-collect-settings/${flowerCollectCookieId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify(settings)
+        });
+
+        if (!response.ok) {
+            throw new Error('保存收小红花设置失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('收小红花设置保存成功', 'success');
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('flowerCollectSettingsModal'));
+            modal.hide();
+        } else {
+            showToast('保存失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('保存收小红花设置失败:', error);
+        showToast('保存收小红花设置失败', 'error');
+    }
+}
+
+// 打开收小红花记录查看器
+async function openFlowerCollectRecords() {
+    if (!flowerCollectCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        // 加载收小红花记录
+        const response = await fetch(`/flower-collect-records/${flowerCollectCookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取收小红花记录失败');
+        }
+
+        const data = await response.json();
+        const records = data.records;
+
+        // 渲染收小红花记录表格
+        const tbody = document.getElementById('flowerCollectRecordsTableBody');
+        tbody.innerHTML = '';
+
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">暂无收小红花记录</td></tr>';
+        } else {
+            records.forEach(record => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${record.order_id}</td>
+                    <td>${record.buyer_id}</td>
+                    <td>${record.send_time || '-'}</td>
+                    <td>${record.collect_time || '-'}</td>
+                    <td><span class="badge bg-${getStatusBadgeClass(record.status)}">${getStatusText(record.status)}</span></td>
+                    <td>${record.created_at}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('flowerCollectRecordsModal'));
+        modal.show();
+
+    } catch (error) {
+        console.error('加载收小红花记录失败:', error);
+        showToast('加载收小红花记录失败', 'error');
+    }
+}
+
+// 查看收小红花统计
+async function viewFlowerCollectStatistics() {
+    if (!flowerCollectCookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        // 加载收小红花统计
+        const response = await fetch(`/flower-collect-statistics/${flowerCollectCookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取收小红花统计失败');
+        }
+
+        const data = await response.json();
+        const stats = data.statistics;
+
+        // 填充统计数据
+        document.getElementById('collectStatTotal').textContent = stats.total;
+        document.getElementById('collectStatPending').textContent = stats.pending;
+        document.getElementById('collectStatCompleted').textContent = stats.completed;
+
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('flowerCollectStatisticsModal'));
+        modal.show();
+
+    } catch (error) {
+        console.error('加载收小红花统计失败:', error);
+        showToast('加载收小红花统计失败', 'error');
+    }
+}
+
+
+// ==================== 求好评管理相关函数 ====================
+
+/**
+ * 加载求好评页面
+ */
+async function loadReviewRequestPage() {
+    try {
+        // 加载账号列表到下拉框
+        const cookies = await fetchJSON(apiBase + '/cookies/details');
+        const select = document.getElementById('review-request-cookie-select');
+
+        if (select) {
+            // 清空现有选项（保留第一个"请选择账号"选项）
+            select.innerHTML = '<option value="">请选择账号</option>';
+
+            // 添加账号选项
+            cookies.forEach(cookie => {
+                const option = document.createElement('option');
+                option.value = cookie.id;
+                option.textContent = cookie.id;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载求好评页面失败:', error);
+        showToast('加载账号列表失败', 'error');
+    }
+}
+
+/**
+ * 加载求好评设置
+ */
+async function loadReviewRequestSettings(cid) {
+    if (!cid) {
+        document.getElementById('review-request-settings-card').style.display = 'none';
+        document.getElementById('review-request-templates-card').style.display = 'none';
+        document.getElementById('review-request-records-card').style.display = 'none';
+        document.getElementById('review-request-statistics').style.display = 'none';
+        return;
+    }
+
+    try {
+        // 加载设置
+        const response = await fetch(`/review-request-settings/${encodeURIComponent(cid)}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('加载求好评设置失败');
+        }
+
+        const data = await response.json();
+        const settings = data.settings;
+
+        // 填充表单
+        document.getElementById('review-request-enabled').checked = settings.enabled || false;
+        document.getElementById('review-request-delay-value').value = settings.delay_value || 3;
+        document.getElementById('review-request-delay-unit').value = settings.delay_unit || 'minutes';
+
+        // 显示设置卡片
+        document.getElementById('review-request-settings-card').style.display = 'block';
+        document.getElementById('review-request-templates-card').style.display = 'block';
+        document.getElementById('review-request-records-card').style.display = 'block';
+        document.getElementById('review-request-statistics').style.display = 'flex';
+
+        // 加载模板列表
+        await loadReviewTemplates(cid);
+
+        // 加载记录列表
+        await loadReviewRequestRecords(cid);
+
+        // 加载统计信息
+        await loadReviewRequestStatistics(cid);
+
+    } catch (error) {
+        console.error('加载求好评设置失败:', error);
+        showToast('加载求好评设置失败', 'error');
+    }
+}
+
+/**
+ * 保存求好评设置
+ */
+async function saveReviewRequestSettings() {
+    const cid = document.getElementById('review-request-cookie-select').value;
+    if (!cid) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    const settings = {
+        enabled: document.getElementById('review-request-enabled').checked,
+        delay_value: parseInt(document.getElementById('review-request-delay-value').value),
+        delay_unit: document.getElementById('review-request-delay-unit').value
+    };
+
+    try {
+        const response = await fetch(`/review-request-settings/${encodeURIComponent(cid)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify(settings)
+        });
+
+        if (!response.ok) {
+            throw new Error('保存求好评设置失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('保存成功', 'success');
+            // 重新加载设置
+            await loadReviewRequestSettings(cid);
+        } else {
+            showToast(data.message || '保存失败', 'error');
+        }
+    } catch (error) {
+        console.error('保存求好评设置失败:', error);
+        showToast('保存求好评设置失败', 'error');
+    }
+}
+
+/**
+ * 加载求好评模板列表
+ */
+async function loadReviewTemplates(cid) {
+    try {
+        const response = await fetch(`/review-templates/${encodeURIComponent(cid)}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('加载模板列表失败');
+        }
+
+        const data = await response.json();
+        const templates = data.templates || [];
+
+        const listContainer = document.getElementById('review-templates-list');
+        if (templates.length === 0) {
+            listContainer.innerHTML = '<p class="text-muted">暂无模板，点击"添加模板"按钮创建</p>';
+            return;
+        }
+
+        listContainer.innerHTML = templates.map(template => `
+            <div class="card mb-2">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <p class="mb-2">${escapeHtml(template.content)}</p>
+                            <small class="text-muted">
+                                创建时间: ${formatDateTime(template.created_at)}
+                            </small>
+                        </div>
+                        <div class="btn-group ms-3">
+                            <div class="form-check form-switch me-2">
+                                <input class="form-check-input" type="checkbox" 
+                                       ${template.enabled ? 'checked' : ''}
+                                       onchange="toggleReviewTemplate(${template.id}, this.checked, '${escapeHtml(template.content)}')">
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary me-1" 
+                                    onclick='showEditReviewTemplateModal(${template.id}, \`${template.content.replace(/`/g, '\\`')}\`, ${template.enabled})'>
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" 
+                                    onclick="deleteReviewTemplate(${template.id})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('加载模板列表失败:', error);
+        showToast('加载模板列表失败', 'error');
+    }
+}
+
+/**
+ * 显示添加模板模态框
+ */
+function showAddReviewTemplateModal() {
+    document.getElementById('new-review-template-content').value = '';
+    const modal = new bootstrap.Modal(document.getElementById('addReviewTemplateModal'));
+    modal.show();
+}
+
+/**
+ * 添加求好评模板
+ */
+async function addReviewTemplate() {
+    const cid = document.getElementById('review-request-cookie-select').value;
+    const content = document.getElementById('new-review-template-content').value.trim();
+
+    if (!content) {
+        showToast('请输入模板内容', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/review-templates/${encodeURIComponent(cid)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify({ content })
+        });
+
+        if (!response.ok) {
+            throw new Error('添加模板失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('添加成功', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('addReviewTemplateModal')).hide();
+            await loadReviewTemplates(cid);
+        } else {
+            showToast(data.message || '添加失败', 'error');
+        }
+    } catch (error) {
+        console.error('添加模板失败:', error);
+        showToast('添加模板失败', 'error');
+    }
+}
+
+/**
+ * 显示编辑模板模态框
+ */
+function showEditReviewTemplateModal(id, content, enabled) {
+    document.getElementById('edit-review-template-id').value = id;
+    document.getElementById('edit-review-template-content').value = content;
+    document.getElementById('edit-review-template-enabled').checked = enabled;
+    const modal = new bootstrap.Modal(document.getElementById('editReviewTemplateModal'));
+    modal.show();
+}
+
+/**
+ * 更新求好评模板
+ */
+async function updateReviewTemplate() {
+    const id = document.getElementById('edit-review-template-id').value;
+    const content = document.getElementById('edit-review-template-content').value.trim();
+    const enabled = document.getElementById('edit-review-template-enabled').checked;
+
+    if (!content) {
+        showToast('请输入模板内容', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/review-templates/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify({ content, enabled })
+        });
+
+        if (!response.ok) {
+            throw new Error('更新模板失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('更新成功', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('editReviewTemplateModal')).hide();
+            const cid = document.getElementById('review-request-cookie-select').value;
+            await loadReviewTemplates(cid);
+        } else {
+            showToast(data.message || '更新失败', 'error');
+        }
+    } catch (error) {
+        console.error('更新模板失败:', error);
+        showToast('更新模板失败', 'error');
+    }
+}
+
+/**
+ * 切换模板启用状态
+ */
+async function toggleReviewTemplate(id, enabled, content) {
+    try {
+        const response = await fetch(`/review-templates/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify({ content, enabled })
+        });
+
+        if (!response.ok) {
+            throw new Error('更新模板状态失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(enabled ? '已启用' : '已禁用', 'success');
+        } else {
+            showToast(data.message || '更新失败', 'error');
+            // 恢复开关状态
+            const cid = document.getElementById('review-request-cookie-select').value;
+            await loadReviewTemplates(cid);
+        }
+    } catch (error) {
+        console.error('更新模板状态失败:', error);
+        showToast('更新模板状态失败', 'error');
+        // 恢复开关状态
+        const cid = document.getElementById('review-request-cookie-select').value;
+        await loadReviewTemplates(cid);
+    }
+}
+
+/**
+ * 删除求好评模板
+ */
+async function deleteReviewTemplate(id) {
+    if (!confirm('确定要删除这个模板吗？')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/review-templates/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('删除模板失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('删除成功', 'success');
+            const cid = document.getElementById('review-request-cookie-select').value;
+            await loadReviewTemplates(cid);
+        } else {
+            showToast(data.message || '删除失败', 'error');
+        }
+    } catch (error) {
+        console.error('删除模板失败:', error);
+        showToast('删除模板失败', 'error');
+    }
+}
+
+/**
+ * 加载求好评记录列表
+ */
+async function loadReviewRequestRecords(cid) {
+    const status = document.getElementById('review-request-status-filter').value;
+
+    try {
+        let url = `/review-request-records/${encodeURIComponent(cid)}`;
+        if (status) {
+            url += `?status=${status}`;
+        }
+
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('加载记录列表失败');
+        }
+
+        const data = await response.json();
+        const records = data.records || [];
+
+        const tbody = document.getElementById('review-request-records-tbody');
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">暂无记录</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = records.map(record => `
+            <tr>
+                <td>${escapeHtml(record.order_id)}</td>
+                <td>${escapeHtml(record.buyer_id)}</td>
+                <td>${formatDateTime(record.completed_time)}</td>
+                <td>${formatDateTime(record.request_time)}</td>
+                <td>${getStatusBadge(record.status)}</td>
+                <td>${formatDateTime(record.created_at)}</td>
+            </tr>
+        `).join('');
+
+    } catch (error) {
+        console.error('加载记录列表失败:', error);
+        showToast('加载记录列表失败', 'error');
+    }
+}
+
+/**
+ * 加载求好评统计信息
+ */
+async function loadReviewRequestStatistics(cid) {
+    try {
+        const response = await fetch(`/review-request-statistics/${encodeURIComponent(cid)}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('加载统计信息失败');
+        }
+
+        const data = await response.json();
+        const stats = data.statistics;
+
+        document.getElementById('review-request-total').textContent = stats.total || 0;
+        document.getElementById('review-request-pending').textContent = stats.pending || 0;
+        document.getElementById('review-request-completed').textContent = stats.completed || 0;
+
+    } catch (error) {
+        console.error('加载统计信息失败:', error);
+    }
+}
+
+/**
+ * 获取状态徽章HTML
+ */
+function getStatusBadge(status) {
+    const badges = {
+        'pending': '<span class="badge bg-warning">待发送</span>',
+        'completed': '<span class="badge bg-success">已完成</span>',
+        'cancelled': '<span class="badge bg-secondary">已取消</span>'
+    };
+    return badges[status] || '<span class="badge bg-secondary">未知</span>';
+}
+
+/**
+ * HTML转义（如果不存在的话）
+ */
+if (typeof escapeHtml === 'undefined') {
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+}
+
+/**
+ * 格式化日期时间（如果不存在的话）
+ */
+if (typeof formatDateTime === 'undefined') {
+    function formatDateTime(datetime) {
+        if (!datetime) return '-';
+        const date = new Date(datetime);
+        return date.toLocaleString('zh-CN');
+    }
+}
+
+
+// ==================== 自动好评功能 ====================
+
+// 加载自动好评设置
+async function loadAutoReviewSettings(cookieId) {
+    if (!cookieId) {
+        // 隐藏所有卡片
+        document.getElementById('auto-review-statistics').style.display = 'none';
+        document.getElementById('auto-review-settings-card').style.display = 'none';
+        document.getElementById('auto-review-templates-card').style.display = 'none';
+        document.getElementById('auto-review-exclude-card').style.display = 'none';
+        document.getElementById('auto-review-records-card').style.display = 'none';
+        return;
+    }
+
+    try {
+        // 加载设置
+        const response = await fetch(`/auto-review-settings/${cookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取自动好评设置失败');
+        }
+
+        const data = await response.json();
+        const settings = data.settings || {};
+
+        // 填充表单
+        document.getElementById('auto-review-enabled').checked = settings.enabled || false;
+        document.getElementById('auto-review-delay-value').value = settings.delay_value || 0;
+        document.getElementById('auto-review-delay-unit').value = settings.delay_unit || 'seconds';
+        document.getElementById('auto-review-exclude-bad').checked = settings.exclude_bad_review || false;
+        document.getElementById('auto-review-exclude-medium').checked = settings.exclude_medium_review || false;
+        document.getElementById('auto-review-exclude-blacklist').checked = settings.exclude_blacklist || false;
+        document.getElementById('auto-review-exclude-dispute').checked = settings.exclude_dispute || false;
+        document.getElementById('auto-review-exclude-competitor').checked = settings.exclude_competitor || false;
+        document.getElementById('auto-review-sensitive-words').value = settings.sensitive_words || '';
+
+        // 显示所有卡片
+        document.getElementById('auto-review-statistics').style.display = 'flex';
+        document.getElementById('auto-review-settings-card').style.display = 'block';
+        document.getElementById('auto-review-templates-card').style.display = 'block';
+        document.getElementById('auto-review-exclude-card').style.display = 'block';
+        document.getElementById('auto-review-records-card').style.display = 'block';
+
+        // 加载模板列表
+        await loadAutoReviewTemplates(cookieId);
+
+        // 加载记录
+        await loadAutoReviewRecords(cookieId);
+
+        // 加载统计信息
+        await loadAutoReviewStatistics(cookieId);
+
+    } catch (error) {
+        console.error('加载自动好评设置失败:', error);
+        showToast('加载自动好评设置失败', 'error');
+    }
+}
+
+// 保存自动好评设置
+async function saveAutoReviewSettings() {
+    const cookieId = document.getElementById('auto-review-cookie-select').value;
+    if (!cookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        const settings = {
+            enabled: document.getElementById('auto-review-enabled').checked,
+            delay_value: parseInt(document.getElementById('auto-review-delay-value').value),
+            delay_unit: document.getElementById('auto-review-delay-unit').value,
+            exclude_bad_review: document.getElementById('auto-review-exclude-bad').checked,
+            exclude_medium_review: document.getElementById('auto-review-exclude-medium').checked,
+            exclude_blacklist: document.getElementById('auto-review-exclude-blacklist').checked,
+            exclude_dispute: document.getElementById('auto-review-exclude-dispute').checked,
+            exclude_competitor: document.getElementById('auto-review-exclude-competitor').checked,
+            sensitive_words: document.getElementById('auto-review-sensitive-words').value.trim()
+        };
+
+        // 验证输入
+        if (settings.delay_value < 0) {
+            showToast('延迟时间不能为负数', 'warning');
+            return;
+        }
+
+        const response = await fetch(`/auto-review-settings/${cookieId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify(settings)
+        });
+
+        if (!response.ok) {
+            throw new Error('保存自动好评设置失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('自动好评设置保存成功', 'success');
+        } else {
+            showToast('保存失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('保存自动好评设置失败:', error);
+        showToast('保存自动好评设置失败', 'error');
+    }
+}
+
+// 加载自动好评模板列表
+async function loadAutoReviewTemplates(cookieId) {
+    try {
+        const response = await fetch(`/auto-review-templates/${cookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取好评模板失败');
+        }
+
+        const data = await response.json();
+        const templates = data.templates || [];
+
+        const listDiv = document.getElementById('auto-review-templates-list');
+        listDiv.innerHTML = '';
+
+        if (templates.length === 0) {
+            listDiv.innerHTML = '<p class="text-muted text-center">暂无好评模板，请添加模板</p>';
+        } else if (templates.length >= 20) {
+            listDiv.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle me-2"></i>已达到最大模板数量（20个），无法继续添加</div>';
+        }
+
+        templates.forEach((template, index) => {
+            const templateCard = document.createElement('div');
+            templateCard.className = 'card mb-2';
+            templateCard.innerHTML = `
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <h6 class="mb-1">模板 ${index + 1}</h6>
+                            <p class="mb-0">${template.content}</p>
+                        </div>
+                        <div class="d-flex gap-2 align-items-center">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" ${template.enabled ? 'checked' : ''}
+                                    onchange="toggleAutoReviewTemplate(${template.id}, this.checked)">
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="editAutoReviewTemplate(${template.id})">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteAutoReviewTemplate(${template.id})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            listDiv.appendChild(templateCard);
+        });
+
+    } catch (error) {
+        console.error('加载好评模板失败:', error);
+        showToast('加载好评模板失败', 'error');
+    }
+}
+
+// 显示添加好评模板模态框
+function showAddAutoReviewTemplateModal() {
+    const cookieId = document.getElementById('auto-review-cookie-select').value;
+    if (!cookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    document.getElementById('new-auto-review-template-content').value = '';
+    const modal = new bootstrap.Modal(document.getElementById('addAutoReviewTemplateModal'));
+    modal.show();
+}
+
+// 添加好评模板
+async function addAutoReviewTemplate() {
+    const cookieId = document.getElementById('auto-review-cookie-select').value;
+    if (!cookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    const content = document.getElementById('new-auto-review-template-content').value.trim();
+    if (!content) {
+        showToast('请输入模板内容', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/auto-review-templates/${cookieId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify({ content: content })
+        });
+
+        if (!response.ok) {
+            throw new Error('添加好评模板失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('添加成功', 'success');
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addAutoReviewTemplateModal'));
+            modal.hide();
+            // 重新加载模板列表
+            await loadAutoReviewTemplates(cookieId);
+        } else {
+            showToast(data.message || '添加失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('添加好评模板失败:', error);
+        showToast('添加好评模板失败', 'error');
+    }
+}
+
+// 编辑好评模板
+async function editAutoReviewTemplate(templateId) {
+    const cookieId = document.getElementById('auto-review-cookie-select').value;
+    if (!cookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        // 获取模板详情
+        const response = await fetch(`/auto-review-templates/${cookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取模板详情失败');
+        }
+
+        const data = await response.json();
+        const template = data.templates.find(t => t.id === templateId);
+
+        if (!template) {
+            showToast('模板不存在', 'error');
+            return;
+        }
+
+        // 填充表单
+        document.getElementById('edit-auto-review-template-id').value = template.id;
+        document.getElementById('edit-auto-review-template-content').value = template.content;
+        document.getElementById('edit-auto-review-template-enabled').checked = template.enabled;
+
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('editAutoReviewTemplateModal'));
+        modal.show();
+
+    } catch (error) {
+        console.error('加载模板详情失败:', error);
+        showToast('加载模板详情失败', 'error');
+    }
+}
+
+// 更新好评模板
+async function updateAutoReviewTemplate() {
+    const cookieId = document.getElementById('auto-review-cookie-select').value;
+    if (!cookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    const templateId = document.getElementById('edit-auto-review-template-id').value;
+    const content = document.getElementById('edit-auto-review-template-content').value.trim();
+    const enabled = document.getElementById('edit-auto-review-template-enabled').checked;
+
+    if (!content) {
+        showToast('请输入模板内容', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/auto-review-templates/${cookieId}/${templateId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify({ content: content, enabled: enabled })
+        });
+
+        if (!response.ok) {
+            throw new Error('更新好评模板失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('更新成功', 'success');
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editAutoReviewTemplateModal'));
+            modal.hide();
+            // 重新加载模板列表
+            await loadAutoReviewTemplates(cookieId);
+        } else {
+            showToast('更新失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('更新好评模板失败:', error);
+        showToast('更新好评模板失败', 'error');
+    }
+}
+
+// 切换好评模板启用状态
+async function toggleAutoReviewTemplate(templateId, enabled) {
+    const cookieId = document.getElementById('auto-review-cookie-select').value;
+    if (!cookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/auto-review-templates/${cookieId}/${templateId}/toggle`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify({ enabled: enabled })
+        });
+
+        if (!response.ok) {
+            throw new Error('切换模板状态失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(enabled ? '模板已启用' : '模板已禁用', 'success');
+        } else {
+            showToast('操作失败', 'error');
+            // 恢复开关状态
+            await loadAutoReviewTemplates(cookieId);
+        }
+
+    } catch (error) {
+        console.error('切换模板状态失败:', error);
+        showToast('切换模板状态失败', 'error');
+        // 恢复开关状态
+        await loadAutoReviewTemplates(cookieId);
+    }
+}
+
+// 删除好评模板
+async function deleteAutoReviewTemplate(templateId) {
+    const cookieId = document.getElementById('auto-review-cookie-select').value;
+    if (!cookieId) {
+        showToast('请先选择账号', 'warning');
+        return;
+    }
+
+    if (!confirm('确定要删除这个好评模板吗？')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/auto-review-templates/${cookieId}/${templateId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('删除好评模板失败');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('删除成功', 'success');
+            // 重新加载模板列表
+            await loadAutoReviewTemplates(cookieId);
+        } else {
+            showToast('删除失败', 'error');
+        }
+
+    } catch (error) {
+        console.error('删除好评模板失败:', error);
+        showToast('删除好评模板失败', 'error');
+    }
+}
+
+// 加载自动好评记录
+async function loadAutoReviewRecords(cookieId) {
+    try {
+        const statusFilter = document.getElementById('auto-review-status-filter').value;
+        let url = `/auto-review-records/${cookieId}`;
+        if (statusFilter) {
+            url += `?status=${statusFilter}`;
+        }
+
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取自动好评记录失败');
+        }
+
+        const data = await response.json();
+        const records = data.records || [];
+
+        const tbody = document.getElementById('auto-review-records-tbody');
+        tbody.innerHTML = '';
+
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">暂无记录</td></tr>';
+        } else {
+            records.forEach(record => {
+                const row = document.createElement('tr');
+                
+                let statusBadge = '';
+                switch (record.status) {
+                    case 'pending':
+                        statusBadge = '<span class="badge bg-warning">待好评</span>';
+                        break;
+                    case 'completed':
+                        statusBadge = '<span class="badge bg-success">已完成</span>';
+                        break;
+                    case 'skipped':
+                        statusBadge = '<span class="badge bg-secondary">已跳过</span>';
+                        break;
+                    case 'failed':
+                        statusBadge = '<span class="badge bg-danger">失败</span>';
+                        break;
+                    default:
+                        statusBadge = `<span class="badge bg-secondary">${record.status}</span>`;
+                }
+
+                row.innerHTML = `
+                    <td>${record.order_id}</td>
+                    <td>${record.buyer_id}</td>
+                    <td>${record.completed_time || '-'}</td>
+                    <td>${record.review_time || '-'}</td>
+                    <td>${statusBadge}</td>
+                    <td>${record.remark || '-'}</td>
+                    <td>${record.created_at}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+    } catch (error) {
+        console.error('加载自动好评记录失败:', error);
+        showToast('加载自动好评记录失败', 'error');
+    }
+}
+
+// 加载自动好评统计信息
+async function loadAutoReviewStatistics(cookieId) {
+    try {
+        const response = await fetch(`/auto-review-statistics/${cookieId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('获取统计信息失败');
+        }
+
+        const data = await response.json();
+        const stats = data.statistics || {};
+
+        document.getElementById('auto-review-total').textContent = stats.total || 0;
+        document.getElementById('auto-review-pending').textContent = stats.pending || 0;
+        document.getElementById('auto-review-completed').textContent = stats.completed || 0;
+        document.getElementById('auto-review-skipped').textContent = stats.skipped || 0;
+
+    } catch (error) {
+        console.error('加载统计信息失败:', error);
+        // 不显示错误提示，只在控制台记录
+    }
+}
+
+// 页面加载时初始化自动好评页面
+document.addEventListener('DOMContentLoaded', function() {
+    // 加载账号列表到自动好评下拉框
+    const autoReviewSelect = document.getElementById('auto-review-cookie-select');
+    if (autoReviewSelect) {
+        fetchJSON(apiBase + '/cookies/details').then(cookies => {
+            autoReviewSelect.innerHTML = '<option value="">请选择账号</option>';
+            cookies.forEach(cookie => {
+                const option = document.createElement('option');
+                option.value = cookie.id;
+                option.textContent = cookie.id;
+                autoReviewSelect.appendChild(option);
+            });
+        }).catch(error => {
+            console.error('加载账号列表失败:', error);
+        });
+    }
+});
