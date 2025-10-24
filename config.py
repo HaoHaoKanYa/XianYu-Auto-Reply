@@ -99,7 +99,10 @@ TOKEN_RETRY_INTERVAL = config.get('TOKEN_RETRY_INTERVAL', 7200)
 MESSAGE_EXPIRE_TIME = config.get('MESSAGE_EXPIRE_TIME', 300000)
 SLIDER_VERIFICATION = config.get('SLIDER_VERIFICATION', {
     'max_concurrent': 3,
-    'wait_timeout': 60
+    'wait_timeout': 60,
+    'max_retries': 3,
+    'retry_delay': 2,
+    'use_human_behavior': True  # 默认启用人类行为模拟
 })
 API_ENDPOINTS = config.get('API_ENDPOINTS', {})
 DEFAULT_HEADERS = config.get('DEFAULT_HEADERS', {})

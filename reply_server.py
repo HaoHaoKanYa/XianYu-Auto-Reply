@@ -956,7 +956,20 @@ async def send_message_api(request: SendMessageRequest):
             )
 
         # 检查WebSocket连接状态
-        if not live_instance.ws or live_instance.ws.closed:
+        # 兼容不同版本的websockets库
+        ws_closed = False
+        if not live_instance.ws:
+            ws_closed = True
+        else:
+            try:
+                ws_closed = live_instance.ws.closed
+            except AttributeError:
+                try:
+                    ws_closed = hasattr(live_instance.ws, 'close_code') and live_instance.ws.close_code is not None
+                except:
+                    ws_closed = False
+        
+        if ws_closed:
             logger.warning(f"账号WebSocket连接已断开: {cleaned_cookie_id}")
             return SendMessageResponse(
                 success=False,
@@ -3107,7 +3120,9 @@ def get_delivery_stats(current_user: Dict[str, Any] = Depends(get_current_user))
         user_id = current_user['user_id']
         
         # 获取今日发货数量
+        logger.info(f"📊 用户 {user_id} 请求今日发货统计")
         today_count = db_manager.get_today_delivery_count(user_id)
+        logger.info(f"✅ 今日发货统计: {today_count} 单")
         
         return {
             "today_deliveries": today_count

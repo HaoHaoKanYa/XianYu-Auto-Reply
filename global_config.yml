@@ -58,11 +58,14 @@ MANUAL_MODE:
   timeout: 3600
   toggle_keywords: []
 MESSAGE_EXPIRE_TIME: 300000
-TOKEN_REFRESH_INTERVAL: 600  # 从3600秒(1小时)增加到72000秒(20小时)
-TOKEN_RETRY_INTERVAL: 600    # 从300秒(5分钟)增加到7200秒(2小时)
+TOKEN_REFRESH_INTERVAL: 9000   # 2.5小时（9000秒），Cookie有效期约3小时，提前刷新避免过期
+TOKEN_RETRY_INTERVAL: 600      # 10分钟，失败后重试间隔
 SLIDER_VERIFICATION:
   max_concurrent: 3  # 滑块验证最大并发数
   wait_timeout: 60   # 等待排队超时时间（秒）
+  max_retries: 3     # 每个策略的最大重试次数（已弃用，现在由各策略独立控制）
+  retry_delay: 2     # 重试前的等待时间（秒）
+  use_human_behavior: true  # 是否使用人类行为模拟（轮番策略：true=先人类行为3次再原始3次，false=仅原始验证器）
 WEBSOCKET_HEADERS:
   Accept-Encoding: gzip, deflate, br, zstd
   Accept-Language: zh-CN,zh;q=0.9

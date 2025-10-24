@@ -3570,7 +3570,13 @@ class DBManager:
                 logger.error(f"更新发货次数失败: {e}")
     
     def get_today_delivery_count(self, user_id: int = None):
-        """获取今日发货数量"""
+        """获取今日发货数量
+        
+        统计逻辑：
+        1. 订单状态为 'shipped'（已发货）
+        2. 订单的 updated_at 是今天（因为状态更新为已发货时会更新 updated_at）
+        3. 如果 updated_at 不是今天，则检查 created_at 是否是今天且状态为已发货
+        """
         with self.lock:
             try:
                 cursor = self.conn.cursor()
@@ -3579,33 +3585,50 @@ class DBManager:
                 from datetime import datetime, date
                 today_start = datetime.combine(date.today(), datetime.min.time()).strftime('%Y-%m-%d %H:%M:%S')
                 
+                logger.debug(f"📅 今日开始时间: {today_start}")
+                
                 if user_id:
                     # 获取该用户的所有cookie_id
                     cursor.execute('SELECT id FROM cookies WHERE user_id = ?', (user_id,))
                     cookie_ids = [row[0] for row in cursor.fetchall()]
                     
+                    logger.debug(f"👤 用户 {user_id} 的账号数: {len(cookie_ids)}")
+                    
                     if not cookie_ids:
+                        logger.debug(f"⚠️ 用户 {user_id} 没有关联的账号")
                         return 0
                     
-                    # 统计今日发货数量
+                    # 统计今日发货数量：状态为已发货且更新时间是今天
                     placeholders = ','.join('?' * len(cookie_ids))
-                    cursor.execute(f'''
-                    SELECT COUNT(*) FROM delivery_history
+                    sql = f'''
+                    SELECT COUNT(*) FROM orders
                     WHERE cookie_id IN ({placeholders})
-                    AND created_at >= ?
-                    ''', (*cookie_ids, today_start))
+                    AND order_status = 'shipped'
+                    AND updated_at >= ?
+                    '''
+                    cursor.execute(sql, (*cookie_ids, today_start))
+                    logger.debug(f"🔍 SQL查询: {sql}")
+                    logger.debug(f"🔍 参数: cookie_ids={cookie_ids}, today_start={today_start}")
                 else:
-                    # 统计所有今日发货数量
-                    cursor.execute('''
-                    SELECT COUNT(*) FROM delivery_history
-                    WHERE created_at >= ?
-                    ''', (today_start,))
+                    # 统计所有今日发货数量：状态为已发货且更新时间是今天
+                    sql = '''
+                    SELECT COUNT(*) FROM orders
+                    WHERE order_status = 'shipped'
+                    AND updated_at >= ?
+                    '''
+                    cursor.execute(sql, (today_start,))
+                    logger.debug(f"🔍 SQL查询(全局): {sql}")
+                    logger.debug(f"🔍 参数: today_start={today_start}")
                 
                 result = cursor.fetchone()
-                return result[0] if result else 0
+                count = result[0] if result else 0
+                logger.info(f"📦 今日发货统计结果: {count} 单 (用户ID: {user_id or '全局'})")
+                return count
                 
             except Exception as e:
                 logger.error(f"获取今日发货数量失败: {e}")
+                import traceback
+                logger.error(f"详细错误: {traceback.format_exc()}")
                 return 0
 
     def get_delivery_rules_by_keyword_and_spec(self, keyword: str, spec_name: str = None, spec_value: str = None):
@@ -7253,49 +7276,71 @@ class DBManager:
     def has_dispute_record(self, order_id: str, cookie_id: str = None) -> bool:
         """检查订单是否存在售后/投诉/纠纷记录（从闲鱼API获取）
         
+        【已禁用】此功能已禁用，直接返回False，不再检查售后状态
+        
         Args:
             order_id: 订单ID
             cookie_id: Cookie ID（可选，用于获取对应的XianyuAutoAsync实例）
             
         Returns:
-            bool: 是否存在记录
+            bool: 始终返回False（功能已禁用）
         """
-        try:
-            # 如果没有提供cookie_id，尝试从订单表中获取
-            if not cookie_id:
-                with self.lock:
-                    cursor = self.conn.cursor()
-                    self._execute_sql(cursor, '''
-                        SELECT cookie_id FROM orders WHERE order_id = ?
-                    ''', (order_id,))
-                    row = cursor.fetchone()
-                    if row:
-                        cookie_id = row[0]
-                    else:
-                        logger.warning(f"订单 {order_id} 不存在，无法检查售后状态")
-                        return False
-            
-            # 获取XianyuAutoAsync实例
-            import cookie_manager as cm
-            xianyu_instance = cm.manager.get_xianyu_instance(cookie_id)
-            if not xianyu_instance:
-                logger.warning(f"无法获取账号 {cookie_id} 的XianyuAutoAsync实例")
-                return False
-            
-            # 异步调用检查售后状态
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
-            has_dispute = loop.run_until_complete(xianyu_instance.check_dispute_record(order_id))
-            return has_dispute
-            
-        except Exception as e:
-            logger.error(f"检查订单售后状态失败: {e}")
-            return False
+        # 功能已禁用，直接返回False，不进行任何检查
+        logger.debug(f"售后检查功能已禁用，订单 {order_id} 跳过售后状态检查")
+        return False
+        
+        # 以下代码已注释，保留以备将来需要时恢复
+        # try:
+        #     # 如果没有提供cookie_id，尝试从订单表中获取
+        #     if not cookie_id:
+        #         with self.lock:
+        #             cursor = self.conn.cursor()
+        #             self._execute_sql(cursor, '''
+        #                 SELECT cookie_id FROM orders WHERE order_id = ?
+        #             ''', (order_id,))
+        #             row = cursor.fetchone()
+        #             if row:
+        #                 cookie_id = row[0]
+        #             else:
+        #                 logger.warning(f"订单 {order_id} 不存在，无法检查售后状态")
+        #                 return False
+        #     
+        #     # 获取XianyuLive实例
+        #     import cookie_manager as cm
+        #     if not cm.manager:
+        #         logger.warning(f"CookieManager未初始化，无法检查订单 {order_id} 的售后状态")
+        #         return False
+        #     
+        #     xianyu_instance = cm.manager.get_xianyu_instance(cookie_id)
+        #     if not xianyu_instance:
+        #         logger.warning(f"无法获取账号 {cookie_id} 的XianyuLive实例，可能账号未运行")
+        #         return False
+        #     
+        #     # 异步调用检查售后状态
+        #     import asyncio
+        #     try:
+        #         loop = asyncio.get_event_loop()
+        #     except RuntimeError:
+        #         loop = asyncio.new_event_loop()
+        #         asyncio.set_event_loop(loop)
+        #     
+        #     # 使用run_coroutine_threadsafe在事件循环中执行
+        #     if loop.is_running():
+        #         future = asyncio.run_coroutine_threadsafe(
+        #             xianyu_instance.check_dispute_record(order_id),
+        #             loop
+        #         )
+        #         has_dispute = future.result(timeout=10)  # 10秒超时
+        #     else:
+        #         has_dispute = loop.run_until_complete(xianyu_instance.check_dispute_record(order_id))
+        #     
+        #     return has_dispute
+        #     
+        # except Exception as e:
+        #     logger.error(f"检查订单售后状态失败: {e}")
+        #     import traceback
+        #     logger.error(f"详细错误: {traceback.format_exc()}")
+        #     return False
 
 
 # 全局单例

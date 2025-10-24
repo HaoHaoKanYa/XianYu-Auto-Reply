@@ -14,6 +14,7 @@ class CookieManager:
         self.loop = loop
         self.cookies: Dict[str, str] = {}
         self.tasks: Dict[str, asyncio.Task] = {}
+        self.instances: Dict[str, 'XianyuLive'] = {}  # 存储XianyuLive实例引用
         self.keywords: Dict[str, List[Tuple[str, str]]] = {}
         self.cookie_status: Dict[str, bool] = {}  # 账号启用状态
         self.auto_confirm_settings: Dict[str, bool] = {}  # 自动确认发货设置
@@ -68,6 +69,11 @@ class CookieManager:
             logger.info(f"【{cookie_id}】开始创建XianyuLive实例...")
             logger.info(f"【{cookie_id}】Cookie值长度: {len(cookie_value)}")
             live = XianyuLive(cookie_value, cookie_id=cookie_id, user_id=user_id)
+            
+            # 保存实例引用
+            self.instances[cookie_id] = live
+            logger.info(f"【{cookie_id}】XianyuLive实例已保存到instances字典")
+            
             logger.info(f"【{cookie_id}】XianyuLive实例创建成功，开始调用main()...")
             await live.main()
         except asyncio.CancelledError:
@@ -76,6 +82,11 @@ class CookieManager:
             logger.error(f"XianyuLive 任务异常({cookie_id}): {e}")
             import traceback
             logger.error(f"详细错误信息: {traceback.format_exc()}")
+        finally:
+            # 任务结束时清理实例引用
+            if cookie_id in self.instances:
+                del self.instances[cookie_id]
+                logger.info(f"【{cookie_id}】XianyuLive实例已从instances字典中移除")
 
     async def _add_cookie_async(self, cookie_id: str, cookie_value: str, user_id: int = None):
         if cookie_id in self.tasks:
@@ -102,6 +113,7 @@ class CookieManager:
             task.cancel()
         self.cookies.pop(cookie_id, None)
         self.keywords.pop(cookie_id, None)
+        self.instances.pop(cookie_id, None)  # 移除实例引用
         # 从数据库删除
         db_manager.delete_cookie(cookie_id)
         logger.info(f"已移除账号: {cookie_id}")
@@ -166,6 +178,9 @@ class CookieManager:
             task = self.tasks.pop(cookie_id, None)
             if task:
                 task.cancel()
+            
+            # 移除旧的实例引用
+            self.instances.pop(cookie_id, None)
 
             # 更新Cookie值
             self.cookies[cookie_id] = new_value
@@ -283,6 +298,12 @@ class CookieManager:
                 task.cancel()
                 logger.info(f"已取消Cookie任务: {cookie_id}")
             del self.tasks[cookie_id]
+            
+            # 清理实例引用
+            if cookie_id in self.instances:
+                del self.instances[cookie_id]
+                logger.info(f"已清理XianyuLive实例: {cookie_id}")
+            
             logger.info(f"成功停止Cookie任务: {cookie_id}")
         except Exception as e:
             logger.error(f"停止Cookie任务失败: {cookie_id}, {e}")
@@ -305,6 +326,22 @@ class CookieManager:
     def get_auto_confirm_setting(self, cookie_id: str) -> bool:
         """获取账号的自动确认发货设置"""
         return self.auto_confirm_settings.get(cookie_id, True)  # 默认开启
+
+    def get_xianyu_instance(self, cookie_id: str) -> Optional['XianyuLive']:
+        """获取指定账号的XianyuLive实例
+        
+        Args:
+            cookie_id: Cookie ID
+            
+        Returns:
+            XianyuLive实例，如果不存在则返回None
+        """
+        instance = self.instances.get(cookie_id)
+        if instance:
+            logger.debug(f"✅ 获取到账号 {cookie_id} 的XianyuLive实例")
+        else:
+            logger.debug(f"⚠️ 账号 {cookie_id} 的XianyuLive实例不存在")
+        return instance
 
 
 # 在 Start.py 中会把此变量赋值为具体实例

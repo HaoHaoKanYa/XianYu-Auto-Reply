@@ -165,6 +165,11 @@ function showSection(sectionName) {
             if (icon) icon.className = 'bi bi-play-circle me-1';
         }
     }
+
+    // 如果切换到非自动发货页面，停止发货统计轮询
+    if (sectionName !== 'auto-delivery') {
+        stopDeliveryStatsPolling();
+    }
 }
 
 // 移动端侧边栏切换
@@ -4220,6 +4225,9 @@ async function loadDeliveryRules() {
 
             // 同时加载卡券列表用于下拉选择
             loadCardsForSelect();
+
+            // 启动今日发货统计的定时轮询
+            startDeliveryStatsPolling();
         } else {
             showToast('加载发货规则失败', 'danger');
         }
@@ -4340,6 +4348,55 @@ async function updateDeliveryStats(rules) {
     document.getElementById('activeRules').textContent = activeRules;
     document.getElementById('todayDeliveries').textContent = todayDeliveries;
     document.getElementById('totalDeliveries').textContent = totalDeliveries;
+}
+
+// 只更新今日发货统计（用于定时轮询）
+async function updateTodayDeliveryCount() {
+    try {
+        console.log('🔄 正在刷新今日发货统计...');
+        const response = await fetch(`${apiBase}/delivery-stats`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            const todayDeliveries = data.today_deliveries || 0;
+            document.getElementById('todayDeliveries').textContent = todayDeliveries;
+            console.log(`✅ 今日发货统计已更新: ${todayDeliveries}`);
+        } else {
+            console.error('❌ 获取今日发货统计失败:', response.status, response.statusText);
+        }
+    } catch (error) {
+        console.error('更新今日发货统计失败:', error);
+    }
+}
+
+// 定时轮询今日发货统计的定时器
+window.deliveryStatsInterval = null;
+
+// 启动今日发货统计的定时轮询
+function startDeliveryStatsPolling() {
+    // 清除已存在的定时器
+    if (window.deliveryStatsInterval) {
+        clearInterval(window.deliveryStatsInterval);
+    }
+
+    // 每30秒更新一次今日发货统计
+    window.deliveryStatsInterval = setInterval(() => {
+        updateTodayDeliveryCount();
+    }, 30000); // 30秒
+
+    console.log('今日发货统计定时轮询已启动（每30秒刷新一次）');
+}
+
+// 停止今日发货统计的定时轮询
+function stopDeliveryStatsPolling() {
+    if (window.deliveryStatsInterval) {
+        clearInterval(window.deliveryStatsInterval);
+        window.deliveryStatsInterval = null;
+        console.log('今日发货统计定时轮询已停止');
+    }
 }
 
 // 显示添加发货规则模态框

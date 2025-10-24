@@ -15,12 +15,37 @@ from config import (
     WEBSOCKET_URL, HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT,
     TOKEN_REFRESH_INTERVAL, TOKEN_RETRY_INTERVAL, COOKIES_STR,
     LOG_CONFIG, AUTO_REPLY, DEFAULT_HEADERS, WEBSOCKET_HEADERS,
-    APP_CONFIG, API_ENDPOINTS
+    APP_CONFIG, API_ENDPOINTS, SLIDER_VERIFICATION
 )
 import sys
 import aiohttp
 from collections import defaultdict
 from db_manager import db_manager
+
+
+def is_websocket_closed(ws) -> bool:
+    """
+    检查WebSocket连接是否已关闭（兼容不同版本的websockets库）
+    
+    Args:
+        ws: WebSocket连接对象
+        
+    Returns:
+        bool: True表示连接已关闭，False表示连接仍然活跃
+    """
+    if not ws:
+        return True
+    
+    try:
+        # 方法1: 尝试使用 closed 属性（标准方式）
+        return ws.closed
+    except AttributeError:
+        try:
+            # 方法2: 尝试使用 close_code 检查（备用方案）
+            return hasattr(ws, 'close_code') and ws.close_code is not None
+        except:
+            # 方法3: 如果都失败，假设连接是活跃的（保守策略）
+            return False
 
 
 class AutoReplyPauseManager:
@@ -1101,6 +1126,8 @@ class XianyuLive:
                                 
                                 # 使用浏览器进行密码登录刷新Cookie
                                 from utils.xianyu_slider_stealth import XianyuSliderStealth
+                                logger.info(f"【{self.cookie_id}】使用原始滑块验证器进行密码登录")
+                                
                                 browser_mode = "有头" if show_browser else "无头"
                                 logger.info(f"【{self.cookie_id}】开始使用{browser_mode}浏览器进行密码登录刷新Cookie...")
                                 logger.info(f"【{self.cookie_id}】使用账号: {username}")
@@ -1213,10 +1240,22 @@ class XianyuLive:
             logger.error(f"【{self.cookie_id}】检查是否需要滑块验证时出错: {self._safe_str(e)}")
             return False
 
-    async def _handle_captcha_verification(self, res_json: dict) -> str:
-        """处理滑块验证，返回新的cookies字符串"""
+    async def _handle_captcha_verification(self, res_json: dict, max_retries: int = None) -> str:
+        """处理滑块验证，返回新的cookies字符串
+        
+        Args:
+            res_json: 响应JSON
+            max_retries: 最大重试次数（每次重试会重新创建浏览器实例），None则从配置读取
+        """
         try:
             logger.info(f"【{self.cookie_id}】开始处理滑块验证...")
+
+            # 从配置文件读取重试次数和延迟时间
+            if max_retries is None:
+                max_retries = SLIDER_VERIFICATION.get('max_retries', 3)
+            retry_delay = SLIDER_VERIFICATION.get('retry_delay', 2)
+            
+            logger.info(f"【{self.cookie_id}】滑块验证配置: 最大重试{max_retries}次, 重试延迟{retry_delay}秒")
 
             # 获取验证URL
             verification_url = None
@@ -1235,30 +1274,73 @@ class XianyuLive:
 
             # 使用滑块验证器（独立实例，解决并发冲突）
             try:
+                # 导入原始验证器
                 from utils.xianyu_slider_stealth import XianyuSliderStealth
-                logger.info(f"【{self.cookie_id}】XianyuSliderStealth导入成功，使用滑块验证")
+                
+                logger.info(f"【{self.cookie_id}】使用原始滑块验证器，最多尝试 {max_retries} 次")
+                
+                success = False
+                cookies = None
+                
+                # 重试循环
+                for retry_count in range(max_retries):
+                    slider_stealth = None
+                    
+                    try:
+                        if retry_count > 0:
+                            logger.info(f"【{self.cookie_id}】第 {retry_count + 1}/{max_retries} 次尝试")
+                            logger.info(f"【{self.cookie_id}】等待 {retry_delay} 秒后重试...")
+                            await asyncio.sleep(retry_delay)
+                        else:
+                            logger.info(f"【{self.cookie_id}】第 1/{max_retries} 次尝试")
 
-                # 创建独立的滑块验证实例（每个用户独立实例，避免并发冲突）
-                slider_stealth = XianyuSliderStealth(
-                    # user_id=f"{self.cookie_id}_{int(time.time() * 1000)}",  # 使用唯一ID避免冲突
-                    user_id=f"{self.cookie_id}",  # 使用唯一ID避免冲突
-                    enable_learning=True,  # 启用学习功能
-                    headless=True  # 使用无头模式
-                )
+                        # 创建验证器实例
+                        slider_stealth = XianyuSliderStealth(
+                            user_id=f"{self.cookie_id}",
+                            enable_learning=True,
+                            headless=False
+                        )
 
-                # 在线程池中执行滑块验证
-                import asyncio
-                import concurrent.futures
+                        # 在线程池中执行滑块验证
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            success, cookies = await loop.run_in_executor(
+                                executor,
+                                slider_stealth.run,
+                                verification_url
+                            )
 
-                loop = asyncio.get_event_loop()
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    # 执行滑块验证
-                    success, cookies = await loop.run_in_executor(
-                        executor,
-                        slider_stealth.run,
-                        verification_url
-                    )
+                        # 显式关闭滑块验证器，释放浏览器资源
+                        try:
+                            if hasattr(slider_stealth, 'close'):
+                                slider_stealth.close()
+                            elif hasattr(slider_stealth, '__del__'):
+                                slider_stealth.__del__()
+                            logger.debug(f"【{self.cookie_id}】滑块验证器资源已释放")
+                        except Exception as close_e:
+                            logger.warning(f"【{self.cookie_id}】关闭滑块验证器时出错: {close_e}")
 
+                        if success and cookies:
+                            logger.info(f"【{self.cookie_id}】✅ 第 {retry_count + 1} 次验证成功！")
+                            break
+                        else:
+                            logger.warning(f"【{self.cookie_id}】❌ 第 {retry_count + 1}/{max_retries} 次验证失败")
+
+                    except Exception as retry_e:
+                        logger.error(f"【{self.cookie_id}】第 {retry_count + 1} 次验证异常: {self._safe_str(retry_e)}")
+                        
+                        # 确保释放资源
+                        try:
+                            if slider_stealth:
+                                if hasattr(slider_stealth, 'close'):
+                                    slider_stealth.close()
+                                elif hasattr(slider_stealth, '__del__'):
+                                    slider_stealth.__del__()
+                        except:
+                            pass
+                
+                # 检查最终是否成功
                 if success and cookies:
                     logger.info(f"【{self.cookie_id}】滑块验证成功，获取到新的cookies")
 
@@ -4187,7 +4269,7 @@ class XianyuLive:
                     break
 
                 # 检查WebSocket连接状态
-                if ws.closed:
+                if is_websocket_closed(ws):
                     logger.warning(f"【{self.cookie_id}】WebSocket连接已关闭，停止心跳循环")
                     break
 
@@ -4304,7 +4386,18 @@ class XianyuLive:
             )
 
             # 重新启动心跳任务
-            if heartbeat_was_running and self.ws and not self.ws.closed:
+            # 兼容不同版本的websockets库检查连接状态
+            ws_is_open = False
+            if self.ws:
+                try:
+                    ws_is_open = not self.ws.closed
+                except AttributeError:
+                    try:
+                        ws_is_open = not (hasattr(self.ws, 'close_code') and self.ws.close_code is not None)
+                    except:
+                        ws_is_open = True  # 假设连接是活跃的
+            
+            if heartbeat_was_running and ws_is_open:
                 logger.debug(f"【{self.cookie_id}】重新启动心跳任务")
                 self.heartbeat_task = asyncio.create_task(self.heartbeat_loop(self.ws))
 
@@ -4325,8 +4418,18 @@ class XianyuLive:
             self.last_cookie_refresh_time = current_time
         finally:
             # 确保心跳任务恢复（如果WebSocket仍然连接）
-            if (self.ws and not self.ws.closed and
-                (not self.heartbeat_task or self.heartbeat_task.done())):
+            # 兼容不同版本的websockets库检查连接状态
+            ws_is_open = False
+            if self.ws:
+                try:
+                    ws_is_open = not self.ws.closed
+                except AttributeError:
+                    try:
+                        ws_is_open = not (hasattr(self.ws, 'close_code') and self.ws.close_code is not None)
+                    except:
+                        ws_is_open = True  # 假设连接是活跃的
+            
+            if (ws_is_open and (not self.heartbeat_task or self.heartbeat_task.done())):
                 logger.info(f"【{self.cookie_id}】Cookie刷新完成，心跳任务正常运行")
                 self.heartbeat_task = asyncio.create_task(self.heartbeat_loop(self.ws))
 
@@ -5090,25 +5193,30 @@ class XianyuLive:
         }
         # 兼容不同版本的websockets库
         try:
+            # 方法1: 尝试使用 additional_headers (websockets 10.0+)
             async with websockets.connect(
                 self.base_url,
-                extra_headers=headers
+                additional_headers=headers
             ) as websocket:
                 await self._handle_websocket_connection(websocket, toid, item_id, text)
         except TypeError as e:
-            # 安全地检查异常信息
             error_msg = self._safe_str(e)
-
-            if "extra_headers" in error_msg:
-                logger.warning("websockets库不支持extra_headers参数，使用兼容模式")
-                # 使用兼容模式，通过subprotocols传递部分头信息
+            logger.debug(f"【{self.cookie_id}】additional_headers 失败: {error_msg}")
+            
+            # 方法2: 尝试使用 extra_headers (旧版本)
+            try:
                 async with websockets.connect(
                     self.base_url,
-                    additional_headers=headers
+                    extra_headers=headers
                 ) as websocket:
                     await self._handle_websocket_connection(websocket, toid, item_id, text)
-            else:
-                raise
+            except TypeError as e2:
+                error_msg2 = self._safe_str(e2)
+                logger.warning(f"【{self.cookie_id}】websockets库不支持headers参数，使用基础连接模式")
+                
+                # 方法3: 不使用自定义headers
+                async with websockets.connect(self.base_url) as websocket:
+                    await self._handle_websocket_connection(websocket, toid, item_id, text)
 
     async def _create_websocket_connection(self, headers):
         """创建WebSocket连接，兼容不同版本的websockets库"""
@@ -5118,37 +5226,32 @@ class XianyuLive:
         websockets_version = getattr(websockets, '__version__', '未知')
         logger.debug(f"websockets库版本: {websockets_version}")
 
+        # 尝试不同的参数名称，兼容不同版本
         try:
-            # 尝试使用extra_headers参数
+            # 方法1: 尝试使用 additional_headers (websockets 10.0+)
+            logger.debug(f"【{self.cookie_id}】尝试使用 additional_headers 参数")
             return websockets.connect(
                 self.base_url,
-                extra_headers=headers
+                additional_headers=headers
             )
-        except Exception as e:
-            # 捕获所有异常类型，不仅仅是TypeError
+        except TypeError as e:
             error_msg = self._safe_str(e)
-            logger.debug(f"extra_headers参数失败: {error_msg}")
-
-            if "extra_headers" in error_msg or "unexpected keyword argument" in error_msg:
-                logger.warning("websockets库不支持extra_headers参数，尝试additional_headers")
-                # 使用additional_headers参数（较新版本）
-                try:
-                    return websockets.connect(
-                        self.base_url,
-                        additional_headers=headers
-                    )
-                except Exception as e2:
-                    error_msg2 = self._safe_str(e2)
-                    logger.debug(f"additional_headers参数失败: {error_msg2}")
-
-                    if "additional_headers" in error_msg2 or "unexpected keyword argument" in error_msg2:
-                        # 如果都不支持，则不传递headers
-                        logger.warning("websockets库不支持headers参数，使用基础连接模式")
-                        return websockets.connect(self.base_url)
-                    else:
-                        raise e2
-            else:
-                raise e
+            logger.debug(f"【{self.cookie_id}】additional_headers 失败: {error_msg}")
+            
+            # 方法2: 尝试使用 extra_headers (旧版本)
+            try:
+                logger.debug(f"【{self.cookie_id}】尝试使用 extra_headers 参数")
+                return websockets.connect(
+                    self.base_url,
+                    extra_headers=headers
+                )
+            except TypeError as e2:
+                error_msg2 = self._safe_str(e2)
+                logger.debug(f"【{self.cookie_id}】extra_headers 失败: {error_msg2}")
+                
+                # 方法3: 不使用自定义headers（最后的兜底方案）
+                logger.warning(f"【{self.cookie_id}】websockets库不支持headers参数，使用基础连接模式")
+                return websockets.connect(self.base_url)
 
     async def _handle_websocket_connection(self, websocket, toid, item_id, text):
         """处理WebSocket连接的具体逻辑"""
@@ -6446,75 +6549,89 @@ class XianyuLive:
     async def check_dispute_record(self, order_id: str) -> bool:
         """检查订单是否存在售后/投诉/纠纷记录
         
+        注意：此功能暂时禁用，因为闲鱼API已变更或下线
+        API错误：FAIL_SYS_API_NOT_FOUNDED::请求API不存在
+        
         Args:
             order_id: 订单ID
             
         Returns:
-            bool: 是否存在售后/投诉/纠纷记录
+            bool: 是否存在售后/投诉/纠纷记录（当前始终返回False）
         """
         try:
-            logger.info(f"【{self.cookie_id}】开始检查订单售后状态: {order_id}")
+            # TODO: 闲鱼API已变更，需要重新抓包找到新的API接口
+            # 旧API: mtop.taobao.idle.order.aftermarket.query
+            # 错误信息: FAIL_SYS_API_NOT_FOUNDED::请求API不存在
             
-            # 构造查询售后状态请求参数
-            params = {
-                't': str(int(time.time() * 1000)),
-                'api': 'mtop.taobao.idle.order.aftermarket.query',
-                'v': '1.0',
-                'type': 'originaljson',
-                'dataType': 'json',
-                'timeout': '20000',
-                'AntiCreep': 'true',
-                'AntiFlood': 'true',
-                'H5Request': 'true',
-                'data': json.dumps({
-                    'orderId': order_id
-                }, separators=(',', ':'))
-            }
+            logger.debug(f"【{self.cookie_id}】订单 {order_id} 售后检查功能暂时禁用（API已失效）")
             
-            # 生成签名
-            token = self.cookies.get('_m_h5_tk', '').split('_')[0] if self.cookies.get('_m_h5_tk') else ''
-            from utils.xianyu_utils import generate_sign
-            sign = generate_sign(params['t'], token, params['data'])
-            params['sign'] = sign
+            # 临时方案：返回False，假设没有纠纷记录
+            # 这样不会影响提醒收货、求小红花、自动好评等功能的正常运行
+            return False
             
-            # 发送请求
-            url = 'https://h5api.m.taobao.com/h5/mtop.taobao.idle.order.aftermarket.query/1.0/'
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://market.m.taobao.com/',
-                'Cookie': self.cookies_str
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, headers=headers) as response:
-                    result = await response.json()
-                    
-                    if result.get('ret') and result['ret'][0] == 'SUCCESS::调用成功':
-                        data = result.get('data', {})
-                        
-                        # 检查是否有售后记录
-                        has_aftermarket = data.get('hasAftermarket', False)
-                        aftermarket_status = data.get('aftermarketStatus', '')
-                        
-                        # 检查是否有投诉记录
-                        has_complaint = data.get('hasComplaint', False)
-                        
-                        # 检查是否有纠纷记录
-                        has_dispute = data.get('hasDispute', False)
-                        
-                        has_record = has_aftermarket or has_complaint or has_dispute
-                        
-                        if has_record:
-                            logger.info(f"【{self.cookie_id}】订单存在售后/投诉/纠纷记录: {order_id}")
-                            logger.info(f"【{self.cookie_id}】售后: {has_aftermarket}, 投诉: {has_complaint}, 纠纷: {has_dispute}")
-                        else:
-                            logger.info(f"【{self.cookie_id}】订单无售后/投诉/纠纷记录: {order_id}")
-                        
-                        return has_record
-                    else:
-                        logger.warning(f"【{self.cookie_id}】查询售后状态失败: {result}")
-                        # 查询失败时返回False，不影响正常流程
-                        return False
+            # ===== 以下是原有代码，保留以便将来修复 =====
+            # logger.info(f"【{self.cookie_id}】开始检查订单售后状态: {order_id}")
+            # 
+            # # 构造查询售后状态请求参数
+            # params = {
+            #     't': str(int(time.time() * 1000)),
+            #     'api': 'mtop.taobao.idle.order.aftermarket.query',
+            #     'v': '1.0',
+            #     'type': 'originaljson',
+            #     'dataType': 'json',
+            #     'timeout': '20000',
+            #     'AntiCreep': 'true',
+            #     'AntiFlood': 'true',
+            #     'H5Request': 'true',
+            #     'data': json.dumps({
+            #         'orderId': order_id
+            #     }, separators=(',', ':'))
+            # }
+            # 
+            # # 生成签名
+            # token = self.cookies.get('_m_h5_tk', '').split('_')[0] if self.cookies.get('_m_h5_tk') else ''
+            # from utils.xianyu_utils import generate_sign
+            # sign = generate_sign(params['t'], token, params['data'])
+            # params['sign'] = sign
+            # 
+            # # 发送请求
+            # url = 'https://h5api.m.taobao.com/h5/mtop.taobao.idle.order.aftermarket.query/1.0/'
+            # headers = {
+            #     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            #     'Referer': 'https://market.m.taobao.com/',
+            #     'Cookie': self.cookies_str
+            # }
+            # 
+            # async with aiohttp.ClientSession() as session:
+            #     async with session.get(url, params=params, headers=headers) as response:
+            #         result = await response.json()
+            #         
+            #         if result.get('ret') and result['ret'][0] == 'SUCCESS::调用成功':
+            #             data = result.get('data', {})
+            #             
+            #             # 检查是否有售后记录
+            #             has_aftermarket = data.get('hasAftermarket', False)
+            #             aftermarket_status = data.get('aftermarketStatus', '')
+            #             
+            #             # 检查是否有投诉记录
+            #             has_complaint = data.get('hasComplaint', False)
+            #             
+            #             # 检查是否有纠纷记录
+            #             has_dispute = data.get('hasDispute', False)
+            #             
+            #             has_record = has_aftermarket or has_complaint or has_dispute
+            #             
+            #             if has_record:
+            #                 logger.info(f"【{self.cookie_id}】订单存在售后/投诉/纠纷记录: {order_id}")
+            #                 logger.info(f"【{self.cookie_id}】售后: {has_aftermarket}, 投诉: {has_complaint}, 纠纷: {has_dispute}")
+            #             else:
+            #                 logger.info(f"【{self.cookie_id}】订单无售后/投诉/纠纷记录: {order_id}")
+            #             
+            #             return has_record
+            #         else:
+            #             logger.warning(f"【{self.cookie_id}】查询售后状态失败: {result}")
+            #             # 查询失败时返回False，不影响正常流程
+            #             return False
                         
         except Exception as e:
             logger.error(f"【{self.cookie_id}】检查订单售后状态异常: {self._safe_str(e)}")

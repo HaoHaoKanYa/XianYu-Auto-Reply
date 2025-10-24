@@ -16,12 +16,33 @@ class WebSocketClient:
     async def connect(self):
         """建立WebSocket连接"""
         try:
-            self.websocket = await websockets.connect(
-                self.url,
-                extra_headers=self.headers,
-                ping_interval=None,
-                ping_timeout=None
-            )
+            # 尝试不同的参数名称，兼容不同版本的websockets库
+            try:
+                # 方法1: 使用 additional_headers (websockets 10.0+)
+                self.websocket = await websockets.connect(
+                    self.url,
+                    additional_headers=self.headers,
+                    ping_interval=None,
+                    ping_timeout=None
+                )
+            except TypeError:
+                # 方法2: 使用 extra_headers (旧版本)
+                try:
+                    self.websocket = await websockets.connect(
+                        self.url,
+                        extra_headers=self.headers,
+                        ping_interval=None,
+                        ping_timeout=None
+                    )
+                except TypeError:
+                    # 方法3: 不使用自定义headers
+                    logger.warning("websockets库不支持headers参数，使用基础连接模式")
+                    self.websocket = await websockets.connect(
+                        self.url,
+                        ping_interval=None,
+                        ping_timeout=None
+                    )
+            
             self.is_connected = True
             logger.info("WebSocket连接建立成功")
             return True
